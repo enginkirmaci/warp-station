@@ -12,11 +12,11 @@
 //! live under the runs in the same column: they are the only entry to an Azure
 //! item, and a pull request opens its own detail in the pane.
 
-use crate::store::Store;
+use crate::store::{Pane, Store};
 use crate::theme;
 use crate::ui::diff_controls;
 use crate::ui::pull_request::{plural, source_tag};
-use crate::ui::{A11y, icon};
+use crate::ui::{A11y, icon, resize};
 use gpui::prelude::*;
 use gpui::{
     AnyElement, Context, Entity, FocusHandle, FontWeight, MouseButton, Rgba, ScrollHandle,
@@ -29,9 +29,8 @@ use warp_station_core::activity::{
 use warp_station_core::azure::AzureSnapshot;
 use warpui_kit_core::{list_nav, motion, pane_nav, shell};
 
-/// The workbench's list column, and the pane width under which it and the
-/// detail stop sharing the pane.
-const WORK_LIST: f32 = 320.;
+/// The pane width under which the runs column and the run's detail stop
+/// sharing the pane.
 const STACKED_PANE: f32 = 900.;
 /// The stage cards and the log keep the work detail's measure.
 const BODY_WIDTH: f32 = 920.;
@@ -318,6 +317,8 @@ impl AzureView {
     ) -> AnyElement {
         let pane_width = self.store.read(cx).pane_width;
         let stacked = pane_width < STACKED_PANE;
+        // the run list's own width, dragged on its right edge
+        let work_list = self.store.read(cx).pane_width(Pane::WorkList);
         let focus = self.store.read(cx).pipeline_branch.clone();
         let waiting = self.store.read(cx).pipeline_watch_active();
         // the first run is the selection where both columns show; the pane
@@ -372,7 +373,8 @@ impl AzureView {
         let list = div()
             .id("azure-runs-column")
             .debug_selector(|| "azure-runs-column".into())
-            .w(px(WORK_LIST))
+            .relative()
+            .w(px(work_list))
             .flex_shrink_0()
             .h_full()
             .flex()
@@ -436,7 +438,8 @@ impl AzureView {
                     .overflow_y_scroll()
                     .track_scroll(&self.list_scroll)
                     .child(rows),
-            );
+            )
+            .children((!stacked).then(|| resize::handle(Pane::WorkList)));
         let detail = div()
             .flex_1()
             .min_w_0()
@@ -464,14 +467,18 @@ impl AzureView {
                     .into_any_element()
             }
         } else {
-            div()
-                .flex_1()
-                .min_h_0()
-                .flex()
-                .flex_row()
-                .child(list)
-                .child(detail)
-                .into_any_element()
+            resize::row(
+                &self.store,
+                Pane::WorkList,
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .flex()
+                    .flex_row()
+                    .child(list)
+                    .child(detail),
+            )
+            .into_any_element()
         }
     }
 

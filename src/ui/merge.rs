@@ -5,9 +5,9 @@
 //! depends on what the buffer already says. Save writes the composed text, and
 //! the staging gate counts the conflicts nothing was picked for.
 
-use crate::store::Store;
+use crate::store::{Pane, Store};
 use crate::theme;
-use crate::ui::{icon, neutral_button, primary_button};
+use crate::ui::{icon, neutral_button, primary_button, resize};
 use gpui::prelude::*;
 use gpui::{
     AnyElement, Context, Entity, FocusHandle, FontWeight, MouseButton, Render, ScrollHandle,
@@ -668,7 +668,11 @@ impl Render for MergePage {
             .flex_col()
             .min_h_0()
             .child(header)
-            .child(shell::panes().child(list).child(detail))
+            .child(resize::row(
+                &self.store,
+                Pane::PageList,
+                shell::panes().child(list).child(detail),
+            ))
             .into_any_element()
     }
 }
@@ -800,6 +804,7 @@ impl MergePage {
             rows = rows.child(self.file_row(index, file, cx));
         }
         shell::list_pane(self.store.read(cx).list_width())
+            .relative()
             .child(
                 div()
                     .flex()
@@ -825,6 +830,7 @@ impl MergePage {
                     ),
             )
             .child(rows)
+            .child(resize::handle(Pane::PageList))
             .into_any_element()
     }
 

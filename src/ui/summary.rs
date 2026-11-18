@@ -3,9 +3,9 @@
 //! another. A summary covers yesterday's commits across every tracked
 //! repository, and its file opens in the notes app from the detail head.
 
-use crate::store::Store;
+use crate::store::{Pane, Store};
 use crate::theme;
-use crate::ui::{A11y, icon};
+use crate::ui::{A11y, icon, resize};
 use gpui::prelude::*;
 use gpui::{Context, Entity, FontWeight, SharedString, Window, div, px};
 use warpui_kit_markdown::LiveEditorState;
@@ -293,6 +293,7 @@ impl Render for SummaryPage {
             rows = rows.child(row);
         }
         let list = shell::list_pane(self.store.read(cx).list_width())
+            .relative()
             .child(
                 div()
                     .flex_shrink_0()
@@ -431,8 +432,12 @@ impl Render for SummaryPage {
                     .into_any_element(),
             });
 
-        shell::panes()
-            .child(list)
-            .child(shell::detail_pane().child(head).child(body))
+        resize::row(
+            &self.store,
+            Pane::PageList,
+            shell::panes()
+                .child(list.child(resize::handle(Pane::PageList)))
+                .child(shell::detail_pane().child(head).child(body)),
+        )
     }
 }

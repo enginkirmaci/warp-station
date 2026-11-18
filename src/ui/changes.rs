@@ -7,14 +7,14 @@
 //! patches, dropdown state, the commit draft).
 
 use crate::net::{GitAction, NetCommand};
-use crate::store::{PullShortcut, Store};
+use crate::store::{Pane, PullShortcut, Store};
 use crate::theme;
 use crate::ui::diff_controls;
 use crate::ui::file_tree;
-use crate::ui::{A11y, icon};
+use crate::ui::{A11y, icon, resize};
 use gpui::prelude::*;
 use gpui::{
-    Context, Entity, FocusHandle, FontWeight, ListAlignment, ListState, MouseButton,
+    Context, Entity, FocusHandle, FontWeight, ListAlignment, ListState, MouseButton, ScrollHandle,
     ScrollStrategy, SharedString, UniformListScrollHandle, Window, div, list, px, uniform_list,
 };
 use gpui_kit::component::input::{InputState, TextareaState};
@@ -161,8 +161,6 @@ const HISTORY_ROW_HEIGHT: f32 = 58.;
 /// A day header's own row; the commit list is height-measured, so this stays
 /// out of the commit row's 58 px.
 const HISTORY_DAY_HEIGHT: f32 = 26.;
-/// The file list and commit box's width.
-const FILE_COLUMN_W: f32 = 320.;
 /// The trailing zone a row keeps for its counts and, on hover, its verbs: the
 /// 24 discard, the 2 gap and the 20 stage toggle. The text always stops before
 /// it, so neither the numbers nor the path run under an icon.
@@ -173,10 +171,6 @@ const ROW_ACTIONS_W: f32 = 50.;
 /// The file list's row height. Section headers match it, so `uniform_list`
 /// can size the whole tree from one measured item.
 const FILE_ROW_H: f32 = 34.;
-/// The commit list's width.
-const HISTORY_COLUMN_W: f32 = 320.;
-/// The drilled commit's file rail, and the height of its group header and rows.
-const COMMIT_RAIL_W: f32 = 240.;
 const COMMIT_RAIL_ROW_H: f32 = 34.;
 /// The git toolbar's height.
 const TOOLBAR_H: f32 = 52.;
@@ -190,6 +184,20 @@ const BRANCH_W: f32 = 260.;
 const PICKER_PANEL_INSET: f32 = 8.;
 /// The commit box's height: the message over its button.
 const COMMIT_BOX_H: f32 = 190.;
+/// The Merge Changes rail's cap: five rows plus its head, so a long conflict
+/// list scrolls instead of eating the Files list.
+const MERGE_RAIL_MAX_H: f32 = 214.;
+
+/// One row of the Changes tab's Merge Changes rail: a path still in the
+/// stopped operation. The conflict text stays on the store; the row only says
+/// what is left in it.
+struct MergeRow {
+    path: String,
+    /// "3 unresolved", "resolved", or the whole-file reason.
+    detail: String,
+    /// Still needs a decision: the detail carries the warning ink.
+    attention: bool,
+}
 
 pub struct ChangesView {
     pub store: Entity<Store>,
@@ -263,6 +271,11 @@ pub struct ChangesView {
     /// Precomputed history row labels, keyed by history generation + today.
     history_rows: Vec<HistoryRow>,
     history_cache_key: (u64, chrono::NaiveDate),
+    /// The Merge Changes rail's keyboard focus and offset, above the Files
+    /// list. The selection stays `selected_file`.
+    merge_focus: FocusHandle,
+    merge_scroll: ScrollHandle,
+    merge_cursor: usize,
     /// The file list's keyboard focus.
     file_focus: FocusHandle,
     /// Keeps the keyboard-selected file row in view.
@@ -354,6 +367,9 @@ impl ChangesView {
             items_cache: None,
             history_rows: Vec::new(),
             history_cache_key: (0, chrono::NaiveDate::MIN),
+            merge_focus: cx.focus_handle(),
+            merge_scroll: ScrollHandle::default(),
+            merge_cursor: 0,
             file_focus: cx.focus_handle(),
             file_scroll: UniformListScrollHandle::default(),
             history_focus: cx.focus_handle(),
@@ -380,6 +396,7 @@ impl ChangesView {
         self.staged_collapsed = false;
         self.unstaged_collapsed = false;
         self.patches.clear();
+        self.merge_cursor = 0;
         self.branch_picker.update(cx, FilteredPicker::dismiss);
         {
             // the branch popup must never show the previous repo's list,
@@ -1246,6 +1263,12 @@ impl Render for ChangesView {
         let body = if clean {
             clean_state(&self.store, cx)
         } else {
+            // the stopped operation's rail draws above the Files list; both
+            // are `←`/`→` stops, top to bottom
+            let merge_rows = self.merge_rows(cx);
+            if !merge_rows.is_empty() {
+                self.pane_nav.register(&self.merge_focus);
+            }
             self.pane_nav.register(&self.file_focus);
             let file_list = self.render_file_list(&file_groups, cx);
             // The list owns the row keys only while its handle holds the
@@ -1253,8 +1276,12 @@ impl Render for ChangesView {
             let file_focused = self.file_focus.is_focused(window);
             let file_count = groups.0.len() + groups.1.len();
             let show_tooltips = self.store.read(cx).settings().general.show_tooltips;
+            let file_column = self.store.read(cx).pane_width(Pane::ChangesFiles);
+            let merge_section = (!merge_rows.is_empty())
+                .then(|| self.render_merge_changes(&merge_rows, window, cx));
             let mut files = div()
-                .w(px(warpui_kit_core::shell::scaled(FILE_COLUMN_W)))
+                .relative()
+                .w(px(file_column))
                 .flex_shrink_0()
                 .h_full()
                 .min_h_0()
@@ -1263,6 +1290,7 @@ impl Render for ChangesView {
                 .bg(theme::surface())
                 .border_r_1()
                 .border_color(theme::hairline())
+                .children(merge_section)
                 .child(
                     // the rows take the keys only while this column owns the
                     // focus; the commit card below is an input and keeps its
@@ -1301,14 +1329,19 @@ impl Render for ChangesView {
             } else {
                 files.child(self.render_commit_card(busy, window, cx))
             };
-            div()
-                .flex_1()
-                .min_h_0()
-                .flex()
-                .flex_row()
-                .child(files)
-                .child(self.render_diff(window, cx))
-                .into_any_element()
+            let diff = self.render_diff(window, cx);
+            resize::row(
+                &self.store,
+                Pane::ChangesFiles,
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .flex()
+                    .flex_row()
+                    .child(files.child(resize::handle(Pane::ChangesFiles)))
+                    .child(diff),
+            )
+            .into_any_element()
         };
         // the branch popup hangs off the toolbar's own bottom edge: the
         // toolbar no longer shifts the panel away from its trigger, and the
@@ -2002,6 +2035,202 @@ impl ChangesView {
             .children(trailing.map(|trailing| div().ml_auto().child(trailing)))
     }
 
+    // ---- Merge Changes ---------------------------------------------------
+
+    /// The Merge Changes rail's rows: the selected repository's stopped
+    /// operation, in the session's path order. The conflict text stays on the
+    /// store; the rail only needs what each row says.
+    fn merge_rows(&self, cx: &gpui::App) -> Vec<MergeRow> {
+        use warp_station_core::git::merge::MergeFile;
+
+        let Some(session) = self.store.read(cx).merge_session() else {
+            return Vec::new();
+        };
+        session
+            .files
+            .iter()
+            .map(|file| match file {
+                MergeFile::Text(text) => MergeRow {
+                    path: text.path.clone(),
+                    detail: if text.blocks.is_empty() {
+                        "resolved".to_string()
+                    } else {
+                        format!("{} unresolved", text.blocks.len())
+                    },
+                    attention: !text.blocks.is_empty(),
+                },
+                MergeFile::WholeFile(whole) => MergeRow {
+                    path: whole.path.clone(),
+                    detail: whole.reason.label().to_string(),
+                    attention: true,
+                },
+            })
+            .collect()
+    }
+
+    /// The Merge Changes rail's keys: a pane move first, then the file cursor.
+    /// A step selects the path, so the diff swaps to that conflict the same
+    /// way a press does.
+    fn handle_merge_key(
+        &mut self,
+        event: &gpui::KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if let Some(dir) = pane_nav::direction(event) {
+            return self.pane_nav.move_from(&self.merge_focus, dir, window, cx);
+        }
+        if event.keystroke.modifiers.modified() {
+            return false;
+        }
+        let Some(key) = list_nav::list_key(event) else {
+            return false;
+        };
+        if !key.moves() {
+            return false;
+        }
+        let rows = self.merge_rows(cx);
+        let Some(next) = list_nav::step(
+            Some(self.merge_cursor),
+            rows.len(),
+            key,
+            list_nav::DEFAULT_PAGE,
+        ) else {
+            return false;
+        };
+        let path = rows[next].path.clone();
+        self.merge_cursor = next;
+        self.merge_scroll.scroll_to_item(next);
+        self.select_file(&path, false, cx);
+        true
+    }
+
+    /// The stopped operation's files, above the ordinary Files list: a merge
+    /// conflict is a different job from a working-tree change, so it gets its
+    /// own head and its own cursor.
+    fn render_merge_changes(
+        &mut self,
+        rows: &[MergeRow],
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> gpui::AnyElement {
+        let focused = self.merge_focus.is_focused(window);
+        let selected = self.selected_file.as_ref().map(|(path, _)| path.as_str());
+        let mut list = div()
+            .id("changes-merge-list")
+            .debug_selector(|| "changes-merge-list".into())
+            .flex_shrink_0()
+            .max_h(px(MERGE_RAIL_MAX_H - LIST_HEAD_H))
+            .overflow_y_scroll()
+            .flex()
+            .flex_col()
+            .track_scroll(&self.merge_scroll);
+        for (index, row) in rows.iter().enumerate() {
+            let chosen = selected == Some(row.path.as_str());
+            let path = row.path.clone();
+            let (dir, name) = match path.rsplit_once('/') {
+                Some((dir, name)) => (format!("{dir}/"), name.to_string()),
+                None => (String::new(), path.clone()),
+            };
+            let detail = row.detail.clone();
+            let attention = row.attention;
+            let selector = format!("changes-merge-{index}");
+            let row_selector = selector.clone();
+            list = list.child(
+                div()
+                    .id(SharedString::from(selector))
+                    .debug_selector(move || row_selector.clone())
+                    .a11y_button(format!("{path}, {detail}"))
+                    .cursor_pointer()
+                    .w_full()
+                    .min_w_0()
+                    .h(px(FILE_ROW_H))
+                    .pl(px(13.))
+                    .pr_2()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_2()
+                    .border_l_3()
+                    .border_color(if chosen {
+                        theme::accent()
+                    } else {
+                        theme::surface()
+                    })
+                    .when(chosen, |d| d.bg(theme::raised()))
+                    .when(!chosen, |d| d.hover(|s| s.bg(theme::panel())))
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        window.focus(&this.merge_focus, cx);
+                        this.click_file(&path, false, window, cx);
+                    }))
+                    .child(
+                        div()
+                            .w(px(14.))
+                            .flex_shrink_0()
+                            .font_family(theme::code_font())
+                            .text_size(px(theme::font_mono_meta()))
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(theme::WARN)
+                            .child("U"),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .overflow_hidden()
+                            .whitespace_nowrap()
+                            .text_ellipsis()
+                            .text_size(px(theme::font_row_meta()))
+                            .text_color(theme::text())
+                            .child(if dir.is_empty() {
+                                name
+                            } else {
+                                format!("{dir}{name}")
+                            }),
+                    )
+                    .child(
+                        div()
+                            .flex_shrink_0()
+                            .text_size(px(theme::font_micro()))
+                            .when(attention, |d| d.text_color(theme::WARN))
+                            .when(!attention, |d| d.text_color(theme::text_muted()))
+                            .child(detail),
+                    ),
+            );
+        }
+        div()
+            .debug_selector(|| "changes-merge".into())
+            .flex_shrink_0()
+            .flex()
+            .flex_col()
+            .border_b_1()
+            .border_color(theme::hairline())
+            .track_focus(&self.merge_focus)
+            .on_key_down(cx.listener(|this, event, window, cx| {
+                if this.handle_merge_key(event, window, cx) {
+                    cx.stop_propagation();
+                }
+            }))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, window, cx| {
+                    if !this.merge_focus.is_focused(window) {
+                        window.focus(&this.merge_focus, cx);
+                    }
+                }),
+            )
+            .child(Self::list_head(
+                "Merge Changes",
+                rows.len(),
+                focused,
+                "merge-head-focused",
+                "merge-head-idle",
+                None,
+            ))
+            .child(list)
+            .into_any_element()
+    }
+
     fn render_file_list(
         &mut self,
         files: &Rc<FileGroups>,
@@ -2478,56 +2707,63 @@ impl ChangesView {
             }
             None => div().into_any_element(),
         };
-        div()
-            .size_full()
-            .flex()
-            .flex_row()
-            .min_h_0()
-            .child(
-                div()
-                    .w(px(warpui_kit_core::shell::scaled(HISTORY_COLUMN_W)))
-                    .flex_shrink_0()
-                    .h_full()
-                    .min_h_0()
-                    .bg(theme::surface())
-                    .border_r_1()
-                    .border_color(theme::hairline())
-                    // the commits take the keys only while this column owns
-                    // the focus; the detail beside it is prose and controls
-                    .track_focus(&self.history_focus)
-                    .on_key_down(cx.listener(|this, event, window, cx| {
-                        if this.handle_history_key(event, window, cx) {
-                            cx.stop_propagation();
-                        }
-                    }))
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(|this, _, window, cx| {
-                            if !this.history_focus.is_focused(window) {
-                                window.focus(&this.history_focus, cx);
+        let history_column = self.store.read(cx).pane_width(Pane::HistoryList);
+        resize::row(
+            &self.store,
+            Pane::HistoryList,
+            div()
+                .size_full()
+                .flex()
+                .flex_row()
+                .min_h_0()
+                .child(
+                    div()
+                        .relative()
+                        .w(px(history_column))
+                        .flex_shrink_0()
+                        .h_full()
+                        .min_h_0()
+                        .bg(theme::surface())
+                        .border_r_1()
+                        .border_color(theme::hairline())
+                        // the commits take the keys only while this column owns
+                        // the focus; the detail beside it is prose and controls
+                        .track_focus(&self.history_focus)
+                        .on_key_down(cx.listener(|this, event, window, cx| {
+                            if this.handle_history_key(event, window, cx) {
+                                cx.stop_propagation();
                             }
-                        }),
-                    )
-                    .child(Self::list_head(
-                        "Commits",
-                        self.history_rows.len(),
-                        history_focused,
-                        "history-head-focused",
-                        "history-head-idle",
-                        None,
-                    ))
-                    .child(list),
-            )
-            .child(
-                div()
-                    .debug_selector(|| "history-detail".into())
-                    .flex_1()
-                    .min_w_0()
-                    .h_full()
-                    .min_h_0()
-                    .child(detail),
-            )
-            .into_any_element()
+                        }))
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(|this, _, window, cx| {
+                                if !this.history_focus.is_focused(window) {
+                                    window.focus(&this.history_focus, cx);
+                                }
+                            }),
+                        )
+                        .child(Self::list_head(
+                            "Commits",
+                            self.history_rows.len(),
+                            history_focused,
+                            "history-head-focused",
+                            "history-head-idle",
+                            None,
+                        ))
+                        .child(list)
+                        .child(resize::handle(Pane::HistoryList)),
+                )
+                .child(
+                    div()
+                        .debug_selector(|| "history-detail".into())
+                        .flex_1()
+                        .min_w_0()
+                        .h_full()
+                        .min_h_0()
+                        .child(detail),
+                ),
+        )
+        .into_any_element()
     }
 
     /// Day-grouped commits with unpushed markers. Row labels are precomputed
@@ -2956,8 +3192,10 @@ impl ChangesView {
         .track_scroll(&self.commit_rail_scroll)
         .debug_selector(|| "commit-files".into())
         .into_any_element();
+        let rail_width = self.store.read(cx).pane_width(Pane::CommitRail);
         let rail = div()
-            .w(px(warpui_kit_core::shell::scaled(COMMIT_RAIL_W)))
+            .relative()
+            .w(px(rail_width))
             .flex_shrink_0()
             .h_full()
             .min_h_0()
@@ -2988,7 +3226,8 @@ impl ChangesView {
                 "commit-files-head-idle",
                 None,
             ))
-            .child(rows);
+            .child(rows)
+            .child(resize::handle(Pane::CommitRail));
 
         // the selected file's diff, through the Changes tab's own pane
         let diff = match details.files.get(selected_file) {
@@ -3017,22 +3256,26 @@ impl ChangesView {
                 .into_any_element(),
         };
 
-        div()
-            .size_full()
-            .flex()
-            .flex_col()
-            .min_h_0()
-            .child(head)
-            .child(
-                div()
-                    .flex_1()
-                    .min_h_0()
-                    .flex()
-                    .flex_row()
-                    .child(rail)
-                    .child(diff),
-            )
-            .into_any_element()
+        resize::row(
+            &self.store,
+            Pane::CommitRail,
+            div()
+                .size_full()
+                .flex()
+                .flex_col()
+                .min_h_0()
+                .child(head)
+                .child(
+                    div()
+                        .flex_1()
+                        .min_h_0()
+                        .flex()
+                        .flex_row()
+                        .child(rail)
+                        .child(diff),
+                ),
+        )
+        .into_any_element()
     }
 
     /// One fixed-height row of the virtualized commit rail: the status
@@ -4987,7 +5230,9 @@ fn merge_conflict_state(
         MergeFile::Text(text) => format!("{} conflict block(s)", text.blocks.len()),
         MergeFile::WholeFile(whole) => whole.reason.label().to_string(),
     };
+    let path = file.path().to_string();
     div()
+        .debug_selector(move || format!("changes-merge-state-{path}"))
         .flex_1()
         .min_h_0()
         .flex()

@@ -4,7 +4,7 @@
 //! timer, Tools and Settings. Notes and warp-agent are their own apps, so the
 //! title bar launches them.
 
-use crate::store::Store;
+use crate::store::{Pane, Store};
 use crate::theme;
 use crate::ui::A11y;
 use crate::ui::clipboard_password::{ClipboardPasswordDrawer, copy_stored_password};
@@ -12,6 +12,7 @@ use crate::ui::formatters::FormattersDrawer;
 use crate::ui::icon;
 use crate::ui::nuget::NugetDrawer;
 use crate::ui::pomodoro::PomodoroPage;
+use crate::ui::resize;
 use crate::ui::summary::SummaryPage;
 use crate::ui::windows_tools::{KeepAwakePage, SnapItPage};
 use gpui::prelude::*;
@@ -2001,6 +2002,7 @@ impl MainWindow {
             );
         }
         let list = shell::list_pane(self.store.read(cx).list_width())
+            .relative()
             .child(
                 div()
                     .flex_shrink_0()
@@ -2014,7 +2016,8 @@ impl MainWindow {
                     .text_color(theme::text())
                     .child(SharedString::from("Tools")),
             )
-            .child(rows);
+            .child(rows)
+            .child(resize::handle(Pane::PageList));
 
         let store = self.store.clone();
         let page = match active {
@@ -2044,14 +2047,16 @@ impl MainWindow {
                 .clone()
                 .into_any_element(),
         };
-        shell::panes()
-            .child(list)
-            .child(
+        resize::row(
+            &self.store,
+            Pane::PageList,
+            shell::panes().child(list).child(
                 shell::detail_pane()
                     .debug_selector(|| "tool-page".into())
                     .child(page),
-            )
-            .into_any_element()
+            ),
+        )
+        .into_any_element()
     }
 
     // ---- about ---------------------------------------------------------------
@@ -2091,24 +2096,26 @@ impl MainWindow {
                 open.update(cx, |this, cx| this.open_about_link(link, cx));
             };
 
-        shell::panes()
-            .min_w_0()
-            .debug_selector(|| "about-page".into())
-            .child(about::list(
-                width,
-                selected,
-                current,
-                &self.about_members,
-                on_pick,
-            ))
-            .child(about::detail(
-                selected,
-                current,
-                &self.about_members,
-                "Open controls",
-                on_action,
-                on_link,
-            ))
+        resize::row(
+            &self.store,
+            Pane::PageList,
+            shell::panes()
+                .min_w_0()
+                .debug_selector(|| "about-page".into())
+                .child(
+                    about::list(width, selected, current, &self.about_members, on_pick)
+                        .relative()
+                        .child(resize::handle(Pane::PageList)),
+                )
+                .child(about::detail(
+                    selected,
+                    current,
+                    &self.about_members,
+                    "Open controls",
+                    on_action,
+                    on_link,
+                )),
+        )
     }
 
     /// Re-reads the installed family off the UI thread: `detect_installed`

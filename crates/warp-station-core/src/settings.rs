@@ -42,6 +42,22 @@ pub struct AppSettings {
     pub workflow: WorkflowSettings,
     #[serde(default)]
     pub notifications: NotificationsSettings,
+    #[serde(default)]
+    pub layout: LayoutSettings,
+}
+
+/// The columns the user dragged, keyed by the column's own name and measured
+/// in layout pixels. Additive and absence-tolerant: a missing section or key
+/// reads the design's width, and a value outside the column's bounds is
+/// clamped where it is read, never trusted.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "snake_case", default)]
+pub struct LayoutSettings {
+    /// List column widths keyed `work_list`, `files_rail`, `commits_list`,
+    /// `commit_files`, `changes_files`, `history_list` or `commit_rail`. The
+    /// page list (Summaries, Settings, Tools, About, the merge editor) keeps
+    /// its older home in `repos.list_width`.
+    pub pane_widths: BTreeMap<String, f32>,
 }
 
 /// The push → pull request → pipeline path. `auto_advance` is the master: with
@@ -817,6 +833,20 @@ mod tests {
         let back: AppSettings = serde_json::from_str(&json).expect("parse back");
         assert_eq!(back.workflow, s.workflow);
         assert!(!back.notifications.pipelines);
+    }
+
+    #[test]
+    fn old_files_get_an_empty_layout_and_the_dragged_widths_round_trip() {
+        // a file written before the section existed reads as no dragged
+        // column, so every list keeps the design's width
+        let old: AppSettings = serde_json::from_str("{}").expect("an empty settings object");
+        assert!(old.layout.pane_widths.is_empty());
+
+        let mut s = AppSettings::default();
+        s.layout.pane_widths.insert("files_rail".into(), 320.);
+        let json = serde_json::to_string(&s).expect("serialize");
+        let back: AppSettings = serde_json::from_str(&json).expect("parse back");
+        assert_eq!(back.layout.pane_widths["files_rail"], 320.);
     }
 
     #[test]

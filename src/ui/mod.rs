@@ -23,6 +23,7 @@ pub mod pull_request;
 pub mod readme;
 pub mod repos;
 pub mod repos_list;
+pub mod resize;
 pub mod settings;
 pub mod summary;
 pub mod window;

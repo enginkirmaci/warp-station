@@ -9,9 +9,9 @@
 //! the wand prompt templates.
 
 use crate::net::TemplateOp;
-use crate::store::Store;
+use crate::store::{Pane, Store};
 use crate::theme;
-use crate::ui::A11y;
+use crate::ui::{A11y, resize};
 use gpui::prelude::*;
 use gpui::{App, Context, Entity, FontWeight, SharedString, Window, div, px, relative};
 use gpui_kit::component::input::{Editor, EditorState, InputEvent, InputState, TextareaState};
@@ -856,6 +856,7 @@ impl Render for SettingsPage {
             );
         }
         let list = warpui_kit_core::shell::list_pane(self.store.read(cx).list_width())
+            .relative()
             .child(
                 div()
                     .flex_shrink_0()
@@ -976,29 +977,35 @@ impl Render for SettingsPage {
 
         let rows = self.section_rows(section, window, cx);
 
-        warpui_kit_core::shell::panes().child(list).child(
-            warpui_kit_core::shell::detail_pane()
-                .debug_selector(|| "settings-detail".into())
-                .child(head)
+        resize::row(
+            &self.store,
+            Pane::PageList,
+            warpui_kit_core::shell::panes()
+                .child(list.child(resize::handle(Pane::PageList)))
                 .child(
-                    div()
-                        .id("settings-scroll")
-                        .flex_1()
-                        // the card column measures against the pane, not
-                        // against its own widest child: without these the
-                        // Git card ran to the window edge
-                        .w_full()
-                        .min_w_0()
-                        .min_h_0()
-                        .overflow_y_scroll()
-                        .p(px(warpui_kit_core::shell::DETAIL_PADDING))
+                    warpui_kit_core::shell::detail_pane()
+                        .debug_selector(|| "settings-detail".into())
+                        .child(head)
                         .child(
-                            // the design's `.measure`: running content reads
-                            // at 760, and the page is rows, not cards
                             div()
+                                .id("settings-scroll")
+                                .flex_1()
+                                // the card column measures against the pane, not
+                                // against its own widest child: without these the
+                                // Git card ran to the window edge
                                 .w_full()
-                                .max_w(px(warpui_kit_core::shell::READING_WIDTH))
-                                .child(kit_settings::rows(rows)),
+                                .min_w_0()
+                                .min_h_0()
+                                .overflow_y_scroll()
+                                .p(px(warpui_kit_core::shell::DETAIL_PADDING))
+                                .child(
+                                    // the design's `.measure`: running content reads
+                                    // at 760, and the page is rows, not cards
+                                    div()
+                                        .w_full()
+                                        .max_w(px(warpui_kit_core::shell::READING_WIDTH))
+                                        .child(kit_settings::rows(rows)),
+                                ),
                         ),
                 ),
         )

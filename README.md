@@ -40,9 +40,22 @@ On a focused repository row: `↑`/`↓` move, `Enter` opens the repository as a
 tab, `Alt+F` favorites, `Alt+A` archives or restores, and `Alt+C` opens
 Changes. `Shift`+letter opens an app (`Shift+C` is VS Code; the launch menu
 shows the rest). `←`/`→` and `Tab`/`Shift+Tab` move the keyboard between the
-lists on screen — the repository list, Changes files, History commits, the
-PR/Issues list, Pipelines runs and the pull request's Files/Commits rails —
-and stop at the end instead of wrapping.
+lists on screen — the repository list, Changes files and Merge Changes,
+History commits, the PR/Issues list, Pipelines runs, the pull request's Files
+and Commits rails and the selected commit's own file rail — and stop at the
+end instead of wrapping.
+
+Every list's right edge drags: the repository list, the page lists (Summary,
+Settings, Tools, About and the merge editor), the PR/Issues and Pipelines
+work lists, the Changes file and History commit columns, and the pull
+request's Files, Commits and commit-files rails. The width stays inside the
+column's bounds, and the last one is remembered.
+
+A repository with a stopped merge, rebase, cherry-pick or revert puts a
+**Merge Changes** list above the Changes tab's Files list: every unmerged path
+with what is left in it (an unresolved-block count, or the whole-file reason
+for a binary or oversized conflict). A press, or the arrow keys on the focused
+rail, picks one and the diff pane offers the merge editor that resolves it.
 
 ## warp-agent integration
 

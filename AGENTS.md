@@ -161,9 +161,14 @@ Keep this order; several steps depend on the previous one:
   button opens the run in the app; the desktop notification has no click
   callback on this path.
 - **Keyboard and titles.** List keys belong to the focused pane (repo list,
-  Changes files, History commits, PR/Issues, Pipelines runs, the PR/Azure
-  Files and Commits rails); the window delegates only while it owns the focus
-  itself. `Enter` opens the selected repository as a tab, app launchers are
+  Changes files and the Merge Changes rail above them, History commits,
+  PR/Issues, Pipelines runs, the PR/Azure Files and Commits rails, and the
+  selected commit's own files inside a PR's Commits tab); the window delegates
+  only while it owns the focus
+  itself. Every list column also carries a drag bar on its right edge
+  (`src/ui/resize.rs`, widths in `src/store/panes.rs`); the page list keeps
+  `repos.list_width` and the workbench columns share
+  `settings.layout.pane_widths`. `Enter` opens the selected repository as a tab, app launchers are
   `Shift`+letter (`Shift C` VS Code), and `Alt F`/`Alt A`/`Alt C` are
   favorite, archive/restore and Changes. `warpui_kit_core::pane_nav` carries
   `←`/`→` and `Tab`/`Shift+Tab` between the lists on screen, never wrapping;

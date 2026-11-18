@@ -4,17 +4,18 @@
 //! Everything reads the store at render time, so filter, sort and status
 //! changes land with the next frame.
 
-use crate::store::Store;
+use crate::store::{Pane, Store};
 use crate::theme;
 use crate::ui::A11y;
 use crate::ui::detail::{DetailProps, DetailViews};
 use crate::ui::dialogs::{AddRepoDialog, CloneDialog, Dialog};
 use crate::ui::icon;
 use crate::ui::overview::RepoMenu;
+use crate::ui::resize;
 use gpui::prelude::*;
 use gpui::{
-    App, Context, DragMoveEvent, Entity, FocusHandle, FontWeight, MouseButton, Pixels, Point,
-    ScrollHandle, SharedString, Window, div, px,
+    App, Context, Entity, FocusHandle, FontWeight, MouseButton, Pixels, Point, ScrollHandle,
+    SharedString, Window, div, px,
 };
 use gpui_kit::component::input::{InputEvent, InputState};
 use std::rc::Rc;
@@ -793,7 +794,7 @@ impl Render for ReposPage {
                         .children(sort_menu)
                         .children(tag_menu),
                 )
-                .child(resize_handle())
+                .child(resize::handle(Pane::PageList))
         });
         let detail_body = {
             let store = self.store.read(cx);
@@ -811,20 +812,11 @@ impl Render for ReposPage {
                 cx,
             )
         };
-        let mut stage = shell::stage().relative().child(strip).child(
-            shell::panes()
-                .on_drag_move(
-                    cx.listener(|this, event: &DragMoveEvent<ListResize>, _, cx| {
-                        let width = f32::from(event.event.position.x - event.bounds.left());
-                        this.store.update(cx, |s, cx| s.set_list_width(width, cx));
-                    }),
-                )
-                .on_drop(cx.listener(|this, _: &ListResize, _, cx| {
-                    this.store.read(cx).save_list_width();
-                }))
-                .children(list)
-                .child(detail_body),
-        );
+        let mut stage = shell::stage().relative().child(strip).child(resize::row(
+            &self.store,
+            Pane::PageList,
+            shell::panes().children(list).child(detail_body),
+        ));
         // the page's pointer card: over the strip and the panes, under the
         // dialogs a blocking action opens
         if let Some(menu) = self.render_page_menu(cx) {
@@ -1830,34 +1822,6 @@ fn icon_action(
 }
 
 /// The segmented control's trough.
-/// What a drag on the list's edge carries. It draws nothing: the list itself is
-/// the feedback.
-struct ListResize;
-
-impl Render for ListResize {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl gpui::IntoElement {
-        gpui::Empty
-    }
-}
-
-/// The list's right edge, on top of its hairline.
-fn resize_handle() -> impl IntoElement {
-    div()
-        .id("list-resize")
-        .debug_selector(|| "list-resize".into())
-        .absolute()
-        .top_0()
-        .bottom_0()
-        .right(px(-3.))
-        .w(px(6.))
-        .cursor_col_resize()
-        .hover(|s| s.bg(theme::line_strong()))
-        .on_drag(ListResize, |_, _, _, cx| {
-            cx.stop_propagation();
-            cx.new(|_| ListResize)
-        })
-}
-
 pub(crate) fn segment_row() -> gpui::Div {
     div()
         .flex()

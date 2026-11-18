@@ -8,7 +8,7 @@
 //! Azure hands out no patch with its change list, so a file's diff is a second
 //! call per file: the pane says so rather than pretending it has one.
 
-use crate::store::Store;
+use crate::store::{Pane, Store};
 use crate::theme;
 use crate::ui::diff_controls;
 use crate::ui::file_tree;
@@ -17,7 +17,7 @@ use crate::ui::pull_request::{
     Shape, avatar, comment_card, menu_divider, menu_item, menu_shell, plain_button,
     plain_button_in, plural, primary_button_in, source_tag, split_button,
 };
-use crate::ui::{A11y, icon};
+use crate::ui::{A11y, icon, resize};
 use gpui::prelude::*;
 use gpui::{
     AnyElement, Context, Entity, FocusHandle, FontWeight, MouseButton, Rgba, ScrollHandle,
@@ -35,7 +35,6 @@ use warpui_kit_core::{field, list_nav, motion, pane_nav, shell};
 use warpui_kit_diff::{DiffScrollHandles, render_diff_with_scroll};
 
 const STRIP_HEIGHT: f32 = 44.;
-const FILE_RAIL: f32 = 240.;
 const RAIL_BAND: f32 = 180.;
 const STACKED_COLUMN: f32 = 900.;
 const READING: f32 = 760.;
@@ -1228,6 +1227,7 @@ impl AzurePullView {
         }
         rail = rail.child(rows);
         let narrow = self.column_width < STACKED_COLUMN;
+        let rail_width = self.store.read(cx).pane_width(Pane::FilesRail);
         let rail = if narrow {
             div()
                 .debug_selector(|| "azure-pull-files-band".into())
@@ -1242,8 +1242,9 @@ impl AzurePullView {
                 .child(rail)
         } else {
             div()
+                .relative()
                 .flex_shrink_0()
-                .w(px(FILE_RAIL))
+                .w(px(rail_width))
                 .h_full()
                 .flex()
                 .flex_col()
@@ -1251,6 +1252,7 @@ impl AzurePullView {
                 .border_color(theme::hairline())
                 .bg(theme::surface())
                 .child(rail)
+                .child(resize::handle(Pane::FilesRail))
         };
 
         let loaded = open.diff.as_ref().filter(|(path, _)| path == &file.path);
@@ -1322,7 +1324,11 @@ impl AzurePullView {
         let layout = if narrow {
             div().flex_1().min_h_0().min_w_0().flex().flex_col()
         } else {
-            div().flex_1().min_h_0().min_w_0().flex().flex_row()
+            resize::row(
+                &self.store,
+                Pane::FilesRail,
+                div().flex_1().min_h_0().min_w_0().flex().flex_row(),
+            )
         };
         layout
             .child(rail)

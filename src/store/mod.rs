@@ -2,7 +2,10 @@
 //! UI state, snapshot `store.read(cx)` at render top and end mutations with
 //! `cx.notify()`. The store never holds UI handles.
 
+pub mod panes;
 pub mod projection;
+
+pub use panes::Pane;
 
 use crate::net::{
     GitAction, MergeActionKind, NetCommand, TemplateOp, UiEvent, WandKind, WarpWorkspaceStatus,
@@ -383,6 +386,10 @@ pub struct Store {
     pending_selection: Option<String>,
     /// The list pane's width while it is dragged; the settings hold it after.
     list_width: Option<f32>,
+    /// The workbench columns dragged this run, by pane. A column not in the
+    /// map reads its saved width from `settings.layout.pane_widths`, or the
+    /// design's; a drop writes the map's value back to the settings.
+    pane_widths: std::collections::BTreeMap<Pane, f32>,
     /// The detail pane's width this frame, as the page measured it. The
     /// workbench splits or stacks on it; it is a render fact, never persisted.
     pub pane_width: f32,
@@ -617,6 +624,7 @@ impl Store {
             pending_open_tab: None,
             pending_selection: None,
             list_width: None,
+            pane_widths: std::collections::BTreeMap::new(),
             pane_width: f32::MAX,
             active_repo_tab: None,
             home_repo: None,
@@ -6076,6 +6084,47 @@ impl Store {
         }
     }
 
+    /// A workbench column's width: this run's drag, the saved value, or the
+    /// design's, always inside the column's bounds. The page list keeps its
+    /// older `repos.list_width` home.
+    pub fn pane_width(&self, pane: Pane) -> f32 {
+        if pane == Pane::PageList {
+            return self.list_width();
+        }
+        let saved = self
+            .pane_widths
+            .get(&pane)
+            .copied()
+            .or_else(|| self.settings().layout.pane_widths.get(pane.key()).copied())
+            .unwrap_or_else(|| pane.default_width());
+        pane.clamp(saved)
+    }
+
+    /// A drag step. The settings file waits for [`Self::save_pane_width`].
+    pub fn set_pane_width(&mut self, pane: Pane, width: f32, cx: &mut Context<Self>) {
+        if pane == Pane::PageList {
+            self.set_list_width(width, cx);
+            return;
+        }
+        self.pane_widths.insert(pane, pane.clamp(width));
+        cx.notify();
+    }
+
+    /// Writes the column's dragged width, and only that one: the other
+    /// columns keep what the settings file already holds.
+    pub fn save_pane_width(&self, pane: Pane) {
+        if pane == Pane::PageList {
+            self.save_list_width();
+            return;
+        }
+        let Some(width) = self.pane_widths.get(&pane).copied() else {
+            return;
+        };
+        self.update_settings(|s| {
+            s.layout.pane_widths.insert(pane.key().to_string(), width);
+        });
+    }
+
     /// Moves to a repo tab, or to the Repositories tab with `None`. Each keeps
     /// its own detail tab. The arrangement writes back, so a restart lands on
     /// the tab the user left on screen.
@@ -6492,16 +6541,25 @@ impl Store {
         }
     }
 
-    /// The stopped operation's entry for `path`, when the selected repository
-    /// is the one loaded: Changes uses it to tell a conflict from an
-    /// untracked file.
-    pub fn merge_file_for(&self, path: &str) -> Option<&warp_station_core::git::merge::MergeFile> {
+    /// The selected repository's stopped operation, once its session has
+    /// loaded: what the Changes tab's Merge Changes rail lists. `None` while
+    /// another repository's session is loaded, before the answer lands, or
+    /// when nothing is stopped.
+    pub fn merge_session(&self) -> Option<&MergeSession> {
         let folder = self.selected_repo.as_deref()?;
         if self.merge_loaded_for.as_deref() != Some(folder) {
             return None;
         }
         self.merge
-            .as_ref()?
+            .as_ref()
+            .filter(|session| !session.files.is_empty())
+    }
+
+    /// The stopped operation's entry for `path`, when the selected repository
+    /// is the one loaded: Changes uses it to tell a conflict from an
+    /// untracked file.
+    pub fn merge_file_for(&self, path: &str) -> Option<&warp_station_core::git::merge::MergeFile> {
+        self.merge_session()?
             .files
             .iter()
             .find(|file| file.path() == path)

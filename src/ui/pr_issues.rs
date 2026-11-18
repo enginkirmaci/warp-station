@@ -5,7 +5,7 @@
 //! written) on one tab and the issue on the other; Issues keeps its filter and
 //! Sort over the list.
 
-use crate::store::Store;
+use crate::store::{Pane, Store};
 use crate::theme;
 use crate::ui::A11y;
 use crate::ui::icon;
@@ -13,6 +13,7 @@ use crate::ui::issue_detail::IssueDetailView;
 use crate::ui::new_pull::NewPullView;
 use crate::ui::pull_request::PullRequestView;
 use crate::ui::repos::{segment, segment_row};
+use crate::ui::resize;
 use gpui::prelude::*;
 use gpui::{
     Context, Entity, FocusHandle, FontWeight, MouseButton, ScrollHandle, SharedString, Window, div,
@@ -24,9 +25,8 @@ use warp_station_core::activity::{ActivityItem, ActivityKind, ActivitySource, Is
 use warpui_kit_core::shell;
 use warpui_kit_core::{list_nav, pane_nav};
 
-/// The workbench's list column, and the pane width under which it and the
-/// pull request stop sharing the pane.
-const WORK_LIST: f32 = 320.;
+/// The pane width under which the list column and the pull request stop
+/// sharing the pane.
 const STACKED_PANE: f32 = 900.;
 
 pub struct ItemListView {
@@ -673,11 +673,13 @@ impl ItemListView {
         };
         let pane_width = self.store.read(cx).pane_width;
         let stacked = pane_width < STACKED_PANE;
+        // the work list's own width, dragged on its right edge
+        let work_list = self.store.read(cx).pane_width(Pane::WorkList);
         // the detail column's own width: the rail-stacking rules read it
         let column_width = if stacked {
             pane_width
         } else {
-            pane_width - WORK_LIST
+            pane_width - work_list
         };
         let writing = self.store.read(cx).new_pull.is_some();
         let selected = self
@@ -743,7 +745,8 @@ impl ItemListView {
         let list = div()
             .id(column_selector)
             .debug_selector(move || column_selector.into())
-            .w(px(WORK_LIST))
+            .relative()
+            .w(px(work_list))
             .flex_shrink_0()
             .h_full()
             .flex()
@@ -798,7 +801,10 @@ impl ItemListView {
                     // a merged one leaves each row's tag to speak for itself
                     .children(single_source_of(items).map(source_tag)),
             )
-            .child(list_rows);
+            .child(list_rows)
+            // the work list's edge: only where both columns show, because a
+            // stacked pane has one column and nothing to drag against
+            .children((!stacked).then(|| resize::handle(Pane::WorkList)));
 
         let detail =
             div()
@@ -835,14 +841,18 @@ impl ItemListView {
                     .into_any_element()
             }
         } else {
-            div()
-                .flex_1()
-                .min_h_0()
-                .flex()
-                .flex_row()
-                .child(list)
-                .child(detail)
-                .into_any_element()
+            resize::row(
+                &self.store,
+                Pane::WorkList,
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .flex()
+                    .flex_row()
+                    .child(list)
+                    .child(detail),
+            )
+            .into_any_element()
         }
     }
 
