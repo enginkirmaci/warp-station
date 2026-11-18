@@ -22,7 +22,7 @@ use gpui::{
 };
 use gpui_kit::component::input::{InputEvent, InputState};
 use warpui_kit_core::text_menu::{self, TextMenuAnchor};
-use warpui_kit_core::{motion, shell};
+use warpui_kit_core::{about, motion, shell};
 
 /// The rail's sections.
 #[derive(Clone, Copy, PartialEq)]
@@ -174,11 +174,11 @@ impl MainWindow {
                 _ => Section::Repos,
             },
             tool: tool.unwrap_or(Tool::Formatters),
-            about_selected: warpui_kit_core::about::AppId::Station,
+            about_selected: about::AppId::Station,
             // the running app is known without asking any process, so About
             // never draws an empty list while the scan runs
             about_members: vec![warpui_kit_core::about::current_member(
-                warpui_kit_core::about::AppId::Station,
+                about::AppId::Station,
                 &warpui_kit_core::build_info!(),
             )],
             about_scanning: false,
@@ -1687,21 +1687,11 @@ impl MainWindow {
                             .flex()
                             .items_center()
                             .gap_2p5()
-                            .child(
-                                div()
-                                    .flex_shrink_0()
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .size(px(28.))
-                                    .rounded(px(6.))
-                                    .bg(theme::accent_soft())
-                                    .child(icon(
-                                        "icons/logo-glyph.svg",
-                                        px(theme::icon_small()),
-                                        theme::accent_ink(),
-                                    )),
-                            )
+                            .child(about::brand_tile(
+                                about::AppId::Station,
+                                28.,
+                                theme::icon_small(),
+                            ))
                             .child(
                                 div()
                                     .text_size(px(theme::font_brand()))
@@ -1719,7 +1709,7 @@ impl MainWindow {
                                 row.child(
                                     shell::app_link(
                                         "notes-toggle",
-                                        "icons/icon-warp-notes.svg",
+                                        about::AppId::Notes,
                                         "Open warp-notes",
                                     )
                                     .when(show_tooltips, |d| {
@@ -1734,7 +1724,7 @@ impl MainWindow {
                                 row.child(
                                     shell::app_link(
                                         "agent-toggle",
-                                        "icons/icon-warp-agent.svg",
+                                        about::AppId::Agent,
                                         "Open warp-agent",
                                     )
                                     .when(show_tooltips, |d| {
@@ -2133,10 +2123,7 @@ impl MainWindow {
             let members = cx
                 .background_executor()
                 .spawn(async move {
-                    warpui_kit_core::about::detect_installed(
-                        warpui_kit_core::about::AppId::Station,
-                        &build,
-                    )
+                    warpui_kit_core::about::detect_installed(about::AppId::Station, &build)
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {

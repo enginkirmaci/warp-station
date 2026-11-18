@@ -1,8 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="Warp Station">
-  <rect width="128" height="128" rx="28" fill="#6B6157"/>
-  <g fill="#F5EFE4">
-    <rect x="32" y="34" width="8" height="60" rx="4"/>
-    <rect x="46" y="34" width="18" height="60" rx="4"/>
-    <rect x="70" y="34" width="26" height="60" rx="4"/>
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3A3C40"/>
+      <stop offset="1" stop-color="#141517"/>
+    </linearGradient>
+    <filter id="s" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="2" stdDeviation="2.2" flood-color="#000000" flood-opacity="0.24"/>
+    </filter>
+  </defs>
+  <g fill="url(#g)" filter="url(#s)">
+    <rect x="9.5" y="21" width="17" height="86" rx="6"/>
+    <rect x="43.5" y="21" width="25" height="86" rx="6"/>
+    <rect x="85.5" y="21" width="33" height="86" rx="6"/>
   </g>
 </svg>
