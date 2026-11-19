@@ -8,34 +8,40 @@ app-specific facts. The user-facing description is in
 ## Shape
 
 Warp Station is the repository workbench: a GPUI app over a headless service
-crate. It is two packages:
+crate. It is two packages: the app at the repository root (`src/`, `tests/`,
+root `Cargo.toml`) and the service crate under `crates/`:
 
 | Package | Path | Role |
 |---|---|---|
-| `warp-station` | `crates/warp-station/` | lib + bin: store, net thread, UI |
+| `warp-station` | `.` (root package: `src/`, `tests/`) | lib + bin: store, net thread, UI |
 | `warp-station-core` | `crates/warp-station-core/` | headless services, no gpui |
 
-`crates/warp-station-core` must not depend on gpui or gpui-kit. It takes
+`warp-station-core` must not depend on gpui or gpui-kit. It takes
 `warpui-kit-platform` with `default-features = false` so its tests stay
 display-free.
 
 ## Where things live
 
-- `crates/warp-station/src/main.rs` — the startup order.
-- `crates/warp-station/src/store/` — the UI state: repos, selection, tabs,
-  notices and the event pump (`mod.rs`, `projection.rs`).
-- `crates/warp-station/src/net.rs` — the net thread: its own tokio runtime and
-  two async channels, commands in and `UiEvent` out.
-- `crates/warp-station/src/ui/` — the window, rail, list, detail tabs,
-  settings, dialogs, tools and the notes/SnapIt surfaces.
-- `crates/warp-station/src/ipc.rs` — the single-instance door (`focus` only).
-- `crates/warp-station/src/theme.rs`, `assets.rs`, `logging.rs`, `notices.rs`.
-- `crates/warp-station-core/src/` — `git/`, `settings.rs`, `paths.rs`,
-  `repo_store.rs`, `scan.rs`, `refresh.rs`, `snapit.rs`, `warp.rs`,
-  `warp_notes.rs`, `opencode.rs`, `autostart.rs`, `hotkey.rs`, `keepawake.rs`,
-  `desktop_notifications.rs`, `jsonio.rs`, `exe.rs`, `process.rs`, `terminal.rs`.
-- `crates/warp-station/tests/` — headless probes; `examples/diff_demo.rs` is a
-  demo, not a test.
+- `src/main.rs` — the startup order; `src/lib.rs` is the boundary the probes
+  build against.
+- `src/store/` — the UI state: repos, selection, tabs, panes, notices and the
+  event pump (`mod.rs`, `panes.rs`, `projection.rs`).
+- `src/net.rs` — the net thread: its own tokio runtime and two async channels,
+  commands in and `UiEvent` out.
+- `src/ui/` — the window, rail, list, detail tabs, settings, dialogs, tools
+  and the notes/pomodoro/SnapIt surfaces (`window.rs`, `repos.rs`,
+  `repos_list.rs`, `changes.rs`, `pull_request.rs`, `azure_tab.rs`,
+  `file_tree.rs`, `resize.rs`, `settings.rs`, `dialogs.rs`, `pomodoro.rs`,
+  `windows_tools.rs`, …).
+- `src/ipc.rs` — the single-instance door (`focus` only).
+- `src/theme.rs`, `assets.rs`, `logging.rs`, `notices.rs`, `shortcuts.rs`.
+- `crates/warp-station-core/src/` — `git/`, `activity.rs`, `azure.rs`,
+  `github.rs`, `settings.rs`, `paths.rs`, `repo_store.rs`, `scan.rs`,
+  `refresh.rs`, `snapit.rs`, `warp.rs`, `warp_notes.rs`, `pomodoro.rs`,
+  `opencode.rs`, `autostart.rs`, `hotkey.rs`, `keepawake.rs`,
+  `desktop_notifications.rs`, `jsonio.rs`, `exe.rs`, `process.rs`,
+  `terminal.rs`, `flow.rs`, `worktree.rs`, and the rest.
+- `tests/` — headless probes; `examples/diff_demo.rs` is a demo, not a test.
 
 ## Startup order
 
@@ -190,7 +196,7 @@ cargo build -p warp-station
 ```
 
 - Unit tests live beside the code; integration probes are under
-  `crates/warp-station/tests/`. `changes_probe`, `repos_probe`,
+  `tests/`. `changes_probe`, `repos_probe`,
   `settings_probe`, `split_probe`, `theme_probe`, `tools_probe` and the rest
   drive real views in headless windows.
 - `changes_probe` and `git_parity` read this repository's own git history.
