@@ -299,7 +299,7 @@ impl ItemListView {
                             if pull_requests {
                                 store.update(cx, |store, cx| store.start_new_pull(cx));
                             } else if let Some(url) = url.as_ref() {
-                                let _ = warp_station_core::terminal::open_folder(url);
+                                let _ = warp_station_core::terminal::open_url(url);
                             }
                         })
                         .child(icon(
@@ -1039,7 +1039,7 @@ impl ItemListView {
                         // a work item has no pane of its own yet
                         (ActivitySource::Azure, ActivityKind::Issue) => {
                             if !item.url.is_empty() {
-                                let _ = warp_station_core::terminal::open_folder(&item.url);
+                                let _ = warp_station_core::terminal::open_url(&item.url);
                             }
                         }
                     });

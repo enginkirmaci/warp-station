@@ -694,7 +694,7 @@ impl AzurePullView {
                 .hover(|s| s.bg(theme::raised()))
                 .when(!url.is_empty(), |d| {
                     d.on_click(move |_, _, _| {
-                        let _ = warp_station_core::terminal::open_folder(&url);
+                        let _ = warp_station_core::terminal::open_url(&url);
                     })
                 })
                 .child(icon(

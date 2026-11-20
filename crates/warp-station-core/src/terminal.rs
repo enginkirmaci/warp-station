@@ -60,7 +60,8 @@ fn powershell_argv(dir: &str, cmd: &[String]) -> Vec<String> {
     ]
 }
 
-/// Opens a folder (or any path) with the desktop file manager.
+/// Opens a folder (or any path) with the desktop file manager. A web link is
+/// not a path: hand it to [`open_url`] instead.
 pub fn open_folder(folder: &str) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     let command = "open";
@@ -74,14 +75,17 @@ pub fn open_folder(folder: &str) -> Result<(), String> {
         .map_err(|err| format!("{command}: {err}"))
 }
 
-/// Opens an http(s) URL in the desktop's default browser — the rail's issue
-/// rows hand GitHub links through here.
+/// Opens an http(s) URL in the desktop's default browser. Every web link goes
+/// through here, never [`open_folder`]: on Windows that one spawns `explorer`,
+/// which can read a URL (a query string especially) as a path and open File
+/// Explorer instead of the browser.
 pub fn open_url(url: &str) -> Result<(), String> {
     #[cfg(windows)]
     {
-        std::process::Command::new("cmd")
-            .args(["/C", "start", ""])
-            .arg(url)
+        let mut command = std::process::Command::new("cmd");
+        command.args(["/C", "start", ""]).arg(url);
+        hide_console(&mut command);
+        command
             .spawn_detached()
             .map_err(|err| format!("start: {err}"))
     }

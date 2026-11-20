@@ -3547,7 +3547,7 @@ impl Store {
             }
             (ActivitySource::Azure, ActivityKind::Issue) => {
                 if !item.url.is_empty() {
-                    let _ = warp_station_core::terminal::open_folder(&item.url);
+                    let _ = warp_station_core::terminal::open_url(&item.url);
                 }
             }
         }
@@ -4700,7 +4700,7 @@ impl Store {
             return;
         }
         if let Some(url) = url.filter(|url| !url.trim().is_empty()) {
-            let _ = warp_station_core::terminal::open_folder(&url);
+            let _ = warp_station_core::terminal::open_url(&url);
             let label = match source {
                 ActivitySource::GitHub => format!("#{number}"),
                 ActivitySource::Azure => format!("!{number}"),

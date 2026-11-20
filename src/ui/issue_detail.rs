@@ -107,7 +107,7 @@ impl Render for IssueDetailView {
                 let url = url.clone();
                 move |_, _, _| {
                     if !url.is_empty() {
-                        let _ = warp_station_core::terminal::open_folder(&url);
+                        let _ = warp_station_core::terminal::open_url(&url);
                     }
                 }
             }));

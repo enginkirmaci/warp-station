@@ -691,7 +691,7 @@ impl AzureView {
         let url = run.url.clone().unwrap_or_default();
         if !url.is_empty() {
             title_row = title_row.child(primary_button("run-open", "Open run", move |_, _, _| {
-                let _ = warp_station_core::terminal::open_folder(&url);
+                let _ = warp_station_core::terminal::open_url(&url);
             }));
         }
 

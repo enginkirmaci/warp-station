@@ -2616,7 +2616,7 @@ fn head_actions(
             .hover(|s| s.bg(theme::raised()))
             .when(!url.is_empty(), |d| {
                 d.on_click(move |_, _, _| {
-                    let _ = warp_station_core::terminal::open_folder(&url);
+                    let _ = warp_station_core::terminal::open_url(&url);
                 })
             })
             .child(icon(
@@ -3077,7 +3077,7 @@ fn check_row(ix: usize, check: &GitHubCheck) -> AnyElement {
             d.cursor_pointer()
                 .hover(|s| s.bg(theme::raised()))
                 .on_click(move |_, _, _| {
-                    let _ = warp_station_core::terminal::open_folder(&url);
+                    let _ = warp_station_core::terminal::open_url(&url);
                 })
         })
         .child(glyph)

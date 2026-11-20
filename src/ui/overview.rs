@@ -1359,7 +1359,7 @@ fn needs_you_section(
                 needy_link("insp-open-azure-wi", "Open", {
                     Box::new(move |_, _, _| {
                         if !url.is_empty() {
-                            let _ = warp_station_core::terminal::open_folder(&url);
+                            let _ = warp_station_core::terminal::open_url(&url);
                         }
                     })
                 }),
