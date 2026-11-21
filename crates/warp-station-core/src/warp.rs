@@ -5,6 +5,7 @@
 //! demand and the run continues.
 
 use anyhow::{Context as _, Result, anyhow};
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -27,6 +28,24 @@ pub struct ModelChoice {
     pub harness: Option<String>,
     pub model: Option<String>,
     pub variant: Option<String>,
+}
+
+/// One enabled harness as the door's `harness metadata` call reports it. The
+/// station AI card uses this list instead of the two fixed defaults.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DoorHarness {
+    pub id: String,
+    pub label: String,
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub available: bool,
+    #[serde(default)]
+    pub state: String,
+    #[serde(default)]
+    pub connection: String,
+    #[serde(default)]
+    pub capabilities: Value,
 }
 
 impl ModelChoice {
@@ -221,6 +240,48 @@ impl Client {
                 .cloned()
                 .unwrap_or(Value::Array(Vec::new()))
         })
+    }
+
+    /// The protocol version this door speaks; a station build refuses a v2
+    /// door rather than sending a `harness` frame it cannot understand.
+    pub async fn protocol_version(&mut self) -> Result<u32> {
+        let answer = self.request(cmd::PING, json!({})).await?;
+        let version = answer
+            .get("version")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| anyhow!("warp-agent did not report its protocol version"))?;
+        Ok(version as u32)
+    }
+
+    /// Every enabled harness with its availability and capabilities.
+    pub async fn harnesses(&mut self) -> Result<Vec<DoorHarness>> {
+        let answer = self
+            .request(cmd::HARNESS, json!({"method": "metadata"}))
+            .await?;
+        let harnesses = answer
+            .get("harnesses")
+            .cloned()
+            .unwrap_or_else(|| Value::Array(Vec::new()));
+        Ok(serde_json::from_value(harnesses)?)
+    }
+
+    /// Opens one filtered harness-event subscription; the answer is the
+    /// subscription id echoed by the door. Events then arrive through
+    /// [`Client::next_frame`] with `"subscription"` set.
+    pub async fn subscribe(&mut self, subscription: &str, filter: Value) -> Result<()> {
+        let mut params = json!({"subscription": subscription});
+        if let Some(filter) = filter.as_object() {
+            for (key, value) in filter {
+                params[key] = value.clone();
+            }
+        }
+        self.request(cmd::SUBSCRIBE, params).await.map(|_| ())
+    }
+
+    pub async fn unsubscribe(&mut self, subscription: &str) -> Result<()> {
+        self.request(cmd::UNSUBSCRIBE, json!({"subscription": subscription}))
+            .await
+            .map(|_| ())
     }
 
     /// Runs one prompt in a fresh warp-agent chat and returns the final
@@ -483,7 +544,7 @@ mod tests {
     #[tokio::test]
     async fn client_roundtrips_commands() {
         let (port, door) = mock_door(vec![
-            ("ping", json!({})),
+            ("ping", json!({"version": 3})),
             (
                 "models",
                 json!({
@@ -498,6 +559,36 @@ mod tests {
                     "models": ["a/x", "b/y"]
                 }),
             ),
+            (
+                "harness",
+                json!({
+                    "harnesses": [
+                        {
+                            "id": "opencode",
+                            "label": "opencode",
+                            "enabled": true,
+                            "available": true,
+                            "state": "ready",
+                            "connection": "managed",
+                            "capabilities": {"commands": true, "forms": false}
+                        },
+                        {
+                            "id": "opencode-v2",
+                            "label": "opencode v2",
+                            "enabled": true,
+                            "available": false,
+                            "state": "unavailable",
+                            "connection": "attached",
+                            "capabilities": {"forms": true}
+                        }
+                    ]
+                }),
+            ),
+            ("subscribe", json!({"subscription": "sub-1"})),
+            (
+                "unsubscribe",
+                json!({"subscription": "sub-1", "unsubscribed": true}),
+            ),
         ])
         .await;
         let dir = tempfile::tempdir().unwrap();
@@ -509,6 +600,17 @@ mod tests {
         assert_eq!(catalog.harnesses.len(), 2);
         assert_eq!(catalog.models.len(), 2);
         assert_eq!(catalog.variants_for("opencode", "a/x"), ["low", "high"]);
+        assert_eq!(client.protocol_version().await.unwrap(), 3);
+        let harnesses = client.harnesses().await.unwrap();
+        assert_eq!(harnesses.len(), 2);
+        assert_eq!(harnesses[1].id, "opencode-v2");
+        assert!(!harnesses[1].available);
+        assert_eq!(harnesses[1].connection, "attached");
+        client
+            .subscribe("sub-1", json!({"harness": "opencode"}))
+            .await
+            .unwrap();
+        client.unsubscribe("sub-1").await.unwrap();
         let _ = client.reader.get_mut().shutdown().await;
         let _ = door.await;
     }
