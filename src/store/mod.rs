@@ -333,6 +333,9 @@ pub struct Store {
     /// warp-agent's harness options; the door is the source, with a built-in
     /// fallback until its first answer or a cache exists.
     pub harnesses: Vec<warp_station_core::opencode::CatalogHarness>,
+    /// Availability/capabilities from the door's `harness metadata`, keyed
+    /// alongside [`Self::harnesses`] by id.
+    pub harness_states: Vec<warp_station_core::warp::DoorHarness>,
     /// The model catalog (harness-qualified and carrying each model's
     /// variants), cache-backed for offline pickers.
     pub catalog: warp_station_core::opencode::ModelCatalog,
@@ -599,6 +602,7 @@ impl Store {
             wand_drafts: std::collections::HashMap::new(),
             wand_queue: std::collections::VecDeque::new(),
             harnesses,
+            harness_states: Vec::new(),
             catalog,
             template_loaded: None,
             summary_busy: false,
@@ -1789,6 +1793,21 @@ impl Store {
                 }
                 cx.notify();
             }
+            UiEvent::HarnessesLoaded { harnesses } => {
+                self.harness_states = harnesses;
+                if !self.harness_states.is_empty() {
+                    self.harnesses = self
+                        .harness_states
+                        .iter()
+                        .map(|harness| warp_station_core::opencode::CatalogHarness {
+                            id: harness.id.clone(),
+                            label: harness.label.clone(),
+                        })
+                        .collect();
+                    self.catalog.harnesses = self.harnesses.clone();
+                }
+                cx.notify();
+            }
             UiEvent::ModelsLoaded {
                 harness,
                 catalog,
@@ -2355,6 +2374,17 @@ impl Store {
     /// offline; never launches warp-agent). The settings model picker asks
     /// for the harness it is showing; `refresh` asks the door to re-read the
     /// backend instead of answering from its in-memory list.
+    /// Loads the registry's enabled harnesses and their availability through
+    /// the door; the settings AI card explains a disabled/unavailable pick.
+    pub fn load_harnesses(&mut self, cx: &mut Context<Self>) {
+        if self.warp_ready().is_some() {
+            let _ = self.net.send_blocking(NetCommand::LoadHarnesses);
+        } else {
+            self.harness_states.clear();
+        }
+        let _ = cx;
+    }
+
     pub fn load_models_for(&mut self, harness: String, refresh: bool, cx: &mut Context<Self>) {
         // a load for another harness retires the previous refresh's pending
         // toast: the answer would otherwise report a catalog the page left

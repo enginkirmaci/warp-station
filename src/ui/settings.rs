@@ -547,7 +547,10 @@ impl SettingsPage {
             })
             .detach();
         }
-        store.update(cx, |s, cx| s.load_models_for(selected_harness, false, cx));
+        store.update(cx, |s, cx| {
+            s.load_models_for(selected_harness, false, cx);
+            s.load_harnesses(cx);
+        });
         page
     }
 
@@ -2113,15 +2116,19 @@ impl SettingsPage {
     /// radio list).
     fn harness_row(&self, cx: &mut Context<Self>, first: bool) -> gpui::AnyElement {
         let harnesses = self.store.read(cx).harnesses.clone();
+        let states = self.store.read(cx).harness_states.clone();
         let selected = self.harness_scope.read(cx).harness.clone();
         let choices = harnesses
             .iter()
             .map(|harness| {
-                kit_settings::Choice::new(
-                    harness.id.clone(),
-                    harness.label.clone(),
-                    harness.id == selected,
-                )
+                let state = states.iter().find(|state| state.id == harness.id);
+                let label = match state {
+                    Some(state) if !state.available && !state.state.is_empty() => {
+                        format!("{} ({})", harness.label, state.state)
+                    }
+                    _ => harness.label.clone(),
+                };
+                kit_settings::Choice::new(harness.id.clone(), label, harness.id == selected)
             })
             .collect();
         let entity = cx.entity();

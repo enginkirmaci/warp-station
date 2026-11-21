@@ -286,6 +286,8 @@ pub enum NetCommand {
         /// its in-memory catalog (the settings refresh button).
         refresh: bool,
     },
+    /// The registry's enabled harnesses with availability and capabilities.
+    LoadHarnesses,
     /// The yesterday-summary wand: day activity across every repo → prompt →
     /// one run in warp-agent's General workspace → the summary file path.
     WandSummary {
@@ -782,6 +784,9 @@ pub enum UiEvent {
         /// True when the door answered from the backend this time; false is
         /// the cache fallback (closed door, unknown command, timeout).
         fresh: bool,
+    },
+    HarnessesLoaded {
+        harnesses: Vec<warp_station_core::warp::DoorHarness>,
     },
     /// The summary wand finished (Ok = the written file path).
     SummaryDone {
@@ -1847,6 +1852,16 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                         wand_id: id,
                         result: outcome,
                     });
+                });
+            }
+            NetCommand::LoadHarnesses => {
+                let evt_tx = evt_tx.clone();
+                tokio::spawn(async move {
+                    let harnesses = match warp_station_core::warp::Client::connect().await {
+                        Ok(mut client) => client.harnesses().await.unwrap_or_default(),
+                        Err(_) => Vec::new(),
+                    };
+                    let _ = evt_tx.send_blocking(UiEvent::HarnessesLoaded { harnesses });
                 });
             }
             NetCommand::LoadModels { harness, refresh } => {
