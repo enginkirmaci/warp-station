@@ -2432,6 +2432,31 @@ impl Store {
         cx.notify();
     }
 
+    /// Answers a multi-field form a live run is blocked on. Field values are
+    /// the shared `FormAnswer` map (field id → JSON value).
+    pub fn respond_wand_form(
+        &mut self,
+        values: serde_json::Map<String, serde_json::Value>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(card) = self.wand_approval.take() else {
+            return;
+        };
+        let form = card
+            .request
+            .pointer("/data/id")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let _ = self.net.send_blocking(NetCommand::ReplyWandForm {
+            harness: card.harness,
+            session: card.session,
+            form,
+            values,
+        });
+        cx.notify();
+    }
+
     /// Loads the registry's enabled harnesses and their availability through
     /// the door; the settings AI card explains a disabled/unavailable pick.
     pub fn load_harnesses(&mut self, cx: &mut Context<Self>) {

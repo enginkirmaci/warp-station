@@ -92,6 +92,9 @@ pub struct MainWindow {
     /// The title-bar queue panel is open: the ordered list of wand requests
     /// waiting for the one slot.
     wand_queue_open: bool,
+    /// Per-field inputs for a form a live wand run is blocked on, keyed by
+    /// approval/field id so they survive repaints.
+    wand_form_inputs: std::collections::HashMap<String, Entity<InputState>>,
     /// The title-bar running panel is open: every live job, in start order.
     running_open: bool,
     /// Window-level focus for the app shortcuts. The window body is not made
@@ -200,6 +203,7 @@ impl MainWindow {
             keep_awake_page: None,
             titlebar_should_move: false,
             wand_queue_open: false,
+            wand_form_inputs: std::collections::HashMap::new(),
             running_open: false,
             focus_handle,
             window_handle,
@@ -445,7 +449,7 @@ impl Render for MainWindow {
         if let Some(panel) = self.render_wand_queue(cx) {
             root = root.child(panel);
         }
-        if let Some(approval) = self.render_wand_approval(cx) {
+        if let Some(approval) = self.render_wand_approval(window, cx) {
             root = root.child(approval);
         }
         if let Some(toasts) = self.render_toasts(cx) {
@@ -746,8 +750,192 @@ impl MainWindow {
 
     /// The blocking permission card for a Station-started wand run. It rides
     /// above the pages like the toasts and answers through the door.
-    fn render_wand_approval(&mut self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
+    /// The multi-field question card: a live v2 form blocks the run until the
+    /// inputs are answered. Field inputs are kept by approval/field id so a
+    /// repaint does not clear typing.
+    fn render_wand_form(
+        &mut self,
+        approval: crate::store::WandApproval,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> gpui::AnyElement {
+        let data = approval.request.get("data").cloned().unwrap_or_default();
+        let title = data
+            .get("title")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("Question");
+        let fields: Vec<(String, String, String, bool)> = data
+            .get("fields")
+            .and_then(serde_json::Value::as_array)
+            .map(|fields| {
+                fields
+                    .iter()
+                    .filter_map(|field| {
+                        Some((
+                            field.get("id")?.as_str()?.to_string(),
+                            field
+                                .get("title")
+                                .and_then(serde_json::Value::as_str)
+                                .unwrap_or("Answer")
+                                .to_string(),
+                            field
+                                .get("kind")
+                                .and_then(serde_json::Value::as_str)
+                                .unwrap_or("text")
+                                .to_string(),
+                            field
+                                .get("required")
+                                .and_then(serde_json::Value::as_bool)
+                                .unwrap_or(false),
+                        ))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let mut rows = div().flex().flex_col().gap_2();
+        let mut inputs = Vec::new();
+        for (id, label, kind, required) in fields {
+            let key = format!("{}-{id}", approval.wand_id);
+            let input = self.wand_form_inputs.entry(key).or_insert_with(|| {
+                cx.new(|cx| {
+                    InputState::new(window, cx).placeholder(if kind == "multiselect" {
+                        "comma-separated values"
+                    } else {
+                        ""
+                    })
+                })
+            });
+            inputs.push((id.clone(), kind.clone(), input.clone()));
+            rows = rows.child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(
+                        div()
+                            .text_size(px(theme::font_meta()))
+                            .text_color(theme::text_dim())
+                            .child(if required {
+                                format!("{label} *")
+                            } else {
+                                label.clone()
+                            }),
+                    )
+                    .child(warpui_kit_core::field::custom(
+                        "wand-form-field",
+                        input,
+                        window,
+                        cx,
+                        move |input| input.aria_label(label.clone()),
+                    )),
+            );
+        }
+        let store = self.store.clone();
+        let dismiss = self.store.clone();
+        let submit = div()
+            .id("wand-form-submit")
+            .a11y_button("Submit the form answer")
+            .cursor_pointer()
+            .rounded_md()
+            .border_1()
+            .border_color(theme::accent())
+            .px_2()
+            .py_1()
+            .text_size(px(theme::font_meta()))
+            .text_color(theme::blue_bright())
+            .hover(|s| s.bg(theme::tint(theme::accent())))
+            .on_click(move |_, _, cx| {
+                let values = inputs
+                    .iter()
+                    .map(|(id, kind, input)| {
+                        let raw = input.read(cx).value().trim().to_string();
+                        let value = match kind.as_str() {
+                            "multiselect" => serde_json::Value::Array(
+                                raw.split(',')
+                                    .map(str::trim)
+                                    .filter(|value| !value.is_empty())
+                                    .map(|value| serde_json::Value::String(value.to_string()))
+                                    .collect(),
+                            ),
+                            "boolean" => serde_json::Value::Bool(matches!(
+                                raw.as_str(),
+                                "true" | "yes" | "1"
+                            )),
+                            "number" | "integer" => raw
+                                .parse::<i64>()
+                                .map(serde_json::Value::from)
+                                .unwrap_or_else(|_| serde_json::Value::String(raw.clone())),
+                            _ => serde_json::Value::String(raw),
+                        };
+                        (id.clone(), value)
+                    })
+                    .collect::<serde_json::Map<_, _>>();
+                store.update(cx, |store, cx| store.respond_wand_form(values, cx));
+            })
+            .child("Submit");
+        let dismiss = div()
+            .id("wand-form-dismiss")
+            .a11y_button("Dismiss the wand form")
+            .cursor_pointer()
+            .px_2()
+            .py_1()
+            .text_size(px(theme::font_meta()))
+            .text_color(theme::text_muted())
+            .hover(|s| s.bg(theme::hover_bg()))
+            .on_click(move |_, _, cx| {
+                dismiss.update(cx, |store, cx| store.dismiss_wand_approval(cx));
+            })
+            .child("Dismiss");
+        div()
+            .id("wand-form")
+            .absolute()
+            .bottom(px(72.))
+            .right_3()
+            .occlude()
+            .max_w(px(460.))
+            .flex()
+            .flex_col()
+            .gap_2()
+            .rounded_lg()
+            .border_1()
+            .border_color(theme::accent())
+            .bg(theme::popup())
+            .shadow_lg()
+            .p_3()
+            .child(
+                div()
+                    .text_size(px(theme::font_body()))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(theme::text())
+                    .child(format!("warp-agent asks: {title}")),
+            )
+            .child(rows)
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_2()
+                    .child(submit)
+                    .child(dismiss),
+            )
+            .into_any_element()
+    }
+
+    fn render_wand_approval(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<gpui::AnyElement> {
         let approval = self.store.read(cx).wand_approval.clone()?;
+        if approval
+            .request
+            .get("type")
+            .and_then(serde_json::Value::as_str)
+            == Some("question-asked")
+        {
+            return Some(self.render_wand_form(approval, window, cx));
+        }
         let data = approval.request.get("data").cloned().unwrap_or_default();
         let action = data
             .get("action")

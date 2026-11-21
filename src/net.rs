@@ -298,6 +298,12 @@ pub enum NetCommand {
         request: String,
         decision: String,
     },
+    ReplyWandForm {
+        harness: String,
+        session: String,
+        form: String,
+        values: serde_json::Map<String, Value>,
+    },
     /// The yesterday-summary wand: day activity across every repo → prompt →
     /// one run in warp-agent's General workspace → the summary file path.
     WandSummary {
@@ -1895,6 +1901,39 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                         wand_id: id,
                         result: outcome,
                     });
+                });
+            }
+            NetCommand::ReplyWandForm {
+                harness,
+                session,
+                form,
+                values,
+            } => {
+                let evt_tx = evt_tx.clone();
+                tokio::spawn(async move {
+                    let result = match warp_station_core::warp::Client::connect().await {
+                        Ok(mut client) => client
+                            .request(
+                                door::cmd::HARNESS,
+                                json!({
+                                    "method": "reply_form",
+                                    "params": {
+                                        "harness": harness,
+                                        "session": session,
+                                        "form": form,
+                                        "values": values,
+                                    }
+                                }),
+                            )
+                            .await
+                            .map(|_| ()),
+                        Err(err) => Err(err),
+                    };
+                    if let Err(err) = result {
+                        let _ = evt_tx.send_blocking(UiEvent::WandReplyFailed {
+                            error: err.to_string(),
+                        });
+                    }
                 });
             }
             NetCommand::ReplyWandPermission {
