@@ -290,6 +290,22 @@ impl Client {
             .map(|_| ())
     }
 
+    /// Opens a subscription without waiting for the door's ack. A run uses
+    /// this before its prompt: an old or silent door must not delay the run,
+    /// and the ack frame (if it arrives) is ignored by the run's answer loop.
+    async fn send_subscribe(&mut self, subscription: &str, filter: Value) -> Result<()> {
+        let id = self.next_id;
+        self.next_id += 1;
+        let mut params = json!({"subscription": subscription});
+        if let Some(filter) = filter.as_object() {
+            for (key, value) in filter {
+                params[key] = value.clone();
+            }
+        }
+        let frame = door::request_frame(id, cmd::SUBSCRIBE, params);
+        self.write(&frame).await
+    }
+
     /// Runs one prompt in a fresh warp-agent chat and returns the final
     /// assistant text. `background` keeps the run out of warp-agent's own
     /// UI — no tile, no focus, no sidebar row — which every Warp Station
@@ -311,6 +327,38 @@ impl Client {
             choice,
             background,
             on_log,
+            |_| {},
+            cancel,
+            CANCEL_GRACE,
+        )
+        .await
+    }
+
+    /// [`Client::run_prompt`] that also surfaces harness events (permissions,
+    /// forms) raised while the run is in flight. The subscription is opened on
+    /// this same connection before the prompt, so a prompt that blocks on an
+    /// approval can still deliver the card to Station.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the run fields plus the two callbacks; grouping them would only rename them"
+    )]
+    pub async fn run_prompt_with_harness_events(
+        &mut self,
+        workspace: &str,
+        prompt: &str,
+        choice: &ModelChoice,
+        background: bool,
+        on_log: impl FnMut(String),
+        on_harness: impl FnMut(Value),
+        cancel: async_channel::Receiver<()>,
+    ) -> Result<String> {
+        self.run_prompt_with_grace(
+            workspace,
+            prompt,
+            choice,
+            background,
+            on_log,
+            on_harness,
             cancel,
             CANCEL_GRACE,
         )
@@ -330,6 +378,7 @@ impl Client {
         choice: &ModelChoice,
         background: bool,
         mut on_log: impl FnMut(String),
+        mut on_harness: impl FnMut(Value),
         cancel: async_channel::Receiver<()>,
         grace: Duration,
     ) -> Result<String> {
@@ -338,6 +387,15 @@ impl Client {
         let mut params =
             json!({"workspace": workspace, "prompt": prompt, "background": background});
         choice.apply(&mut params);
+        let subscription = format!("run-{id}");
+        let filter = choice
+            .harness
+            .as_ref()
+            .map(|harness| json!({"harness": harness}))
+            .unwrap_or_else(|| json!({}));
+        // a failed subscribe leaves the run usable: the final answer still
+        // arrives, only the blocking card would be missing
+        let _ = self.send_subscribe(&subscription, filter).await;
         let frame = door::request_frame(id, cmd::RUN_PROMPT, params);
         self.write(&frame).await?;
 
@@ -387,6 +445,10 @@ impl Client {
                 && let Some(line) = answer.get("line").and_then(Value::as_str)
             {
                 on_log(line.to_string());
+                continue;
+            }
+            if answer.get("event").and_then(Value::as_str) == Some("harness-event") {
+                on_harness(answer);
                 continue;
             }
             if answer.get("id").and_then(Value::as_u64) != Some(id) {
@@ -621,6 +683,84 @@ mod tests {
         let _ = door.await;
     }
 
+    #[tokio::test]
+    async fn a_run_surfaces_a_blocking_harness_event_before_its_answer() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let door = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let (read_half, mut write_half) = stream.into_split();
+            let mut reader = BufReader::new(read_half);
+            let mut line = String::new();
+            reader.read_line(&mut line).await.unwrap();
+            write_half
+                .write_all(format!("{}\n", json!({"ok": true})).as_bytes())
+                .await
+                .unwrap();
+            // subscribe ack
+            let mut line = String::new();
+            reader.read_line(&mut line).await.unwrap();
+            let request: Value = serde_json::from_str(line.trim()).unwrap();
+            write_half
+                .write_all(
+                    format!(
+                        "{}\n",
+                        json!({"id": request["id"], "ok": true, "subscription": "run-2"})
+                    )
+                    .as_bytes(),
+                )
+                .await
+                .unwrap();
+            // run-prompt: push one permission frame, then the final answer
+            let mut line = String::new();
+            reader.read_line(&mut line).await.unwrap();
+            let request: Value = serde_json::from_str(line.trim()).unwrap();
+            let id = request.get("id").and_then(Value::as_u64).unwrap_or(3);
+            let permission = json!({
+                "event": "harness-event",
+                "harness": "opencode",
+                "session": "ses_1",
+                "type": "permission-asked",
+                "data": {"id": "p1", "action": "edit", "resources": ["a.rs"]}
+            });
+            write_half
+                .write_all(format!("{permission}\n").as_bytes())
+                .await
+                .unwrap();
+            write_half
+                .write_all(
+                    format!("{}\n", json!({"id": id, "ok": true, "text": "done"})).as_bytes(),
+                )
+                .await
+                .unwrap();
+        });
+
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("ipc.token"), "test-token\n").unwrap();
+        std::fs::write(dir.path().join("ipc.port"), format!("{port}\n")).unwrap();
+        let mut client = Client::connect_in(dir.path()).await.unwrap();
+        let (_cancel_tx, cancel_rx) = async_channel::bounded(1);
+        let mut approvals = Vec::new();
+        let answer = client
+            .run_prompt_with_harness_events(
+                "general",
+                "hello",
+                &ModelChoice::default(),
+                true,
+                |_| {},
+                |event| approvals.push(event),
+                cancel_rx,
+            )
+            .await
+            .unwrap();
+        assert_eq!(answer, "done");
+        assert_eq!(approvals.len(), 1);
+        assert_eq!(approvals[0]["type"], "permission-asked");
+        assert_eq!(approvals[0]["session"], "ses_1");
+        let _ = client.reader.get_mut().shutdown().await;
+        let _ = door.await;
+    }
+
     /// A cancelled run must settle even when the door never answers: the
     /// cancel frame is fire-and-forget, so the client owns the deadline.
     #[tokio::test]
@@ -643,6 +783,7 @@ mod tests {
                 "hello",
                 &ModelChoice::default(),
                 true,
+                |_| {},
                 |_| {},
                 cancel_rx,
                 Duration::from_millis(120),

@@ -445,6 +445,9 @@ impl Render for MainWindow {
         if let Some(panel) = self.render_wand_queue(cx) {
             root = root.child(panel);
         }
+        if let Some(approval) = self.render_wand_approval(cx) {
+            root = root.child(approval);
+        }
         if let Some(toasts) = self.render_toasts(cx) {
             root = root.child(toasts);
         }
@@ -739,6 +742,118 @@ impl MainWindow {
             );
         }
         Some(panel.into_any_element())
+    }
+
+    /// The blocking permission card for a Station-started wand run. It rides
+    /// above the pages like the toasts and answers through the door.
+    fn render_wand_approval(&mut self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
+        let approval = self.store.read(cx).wand_approval.clone()?;
+        let data = approval.request.get("data").cloned().unwrap_or_default();
+        let action = data
+            .get("action")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("permission");
+        let message = data
+            .get("message")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+        let resources = data
+            .get("resources")
+            .and_then(serde_json::Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(serde_json::Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            })
+            .unwrap_or_default();
+        let store = self.store.clone();
+        let dismiss = self.store.clone();
+        let mut buttons = div().flex().flex_row().items_center().gap_2();
+        for (label, decision) in [
+            ("Allow once", "once"),
+            ("Always", "always"),
+            ("Reject", "reject"),
+        ] {
+            let store = store.clone();
+            buttons = buttons.child(
+                div()
+                    .id(format!("wand-approval-{decision}"))
+                    .a11y_button(format!("{label} for the wand run"))
+                    .cursor_pointer()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(theme::hairline())
+                    .px_2()
+                    .py_1()
+                    .text_size(px(theme::font_meta()))
+                    .text_color(theme::text())
+                    .hover(|s| s.bg(theme::hover_bg()))
+                    .on_click(move |_, _, cx| {
+                        store.update(cx, |s, cx| s.respond_wand_approval(decision, cx));
+                    })
+                    .child(label),
+            );
+        }
+        buttons = buttons.child(
+            div()
+                .id("wand-approval-dismiss")
+                .a11y_button("Dismiss the wand permission")
+                .cursor_pointer()
+                .px_2()
+                .py_1()
+                .text_size(px(theme::font_meta()))
+                .text_color(theme::text_muted())
+                .hover(|s| s.bg(theme::hover_bg()))
+                .on_click(move |_, _, cx| {
+                    dismiss.update(cx, |s, cx| s.dismiss_wand_approval(cx));
+                })
+                .child("Dismiss"),
+        );
+        Some(
+            div()
+                .id("wand-approval")
+                .absolute()
+                .bottom(px(72.))
+                .right_3()
+                .occlude()
+                .max_w(px(460.))
+                .flex()
+                .flex_col()
+                .gap_2()
+                .rounded_lg()
+                .border_1()
+                .border_color(theme::tint(theme::DANGER))
+                .bg(theme::popup())
+                .shadow_lg()
+                .p_3()
+                .child(
+                    div()
+                        .text_size(px(theme::font_body()))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(theme::text())
+                        .child(format!("warp-agent needs permission: {action}")),
+                )
+                .when(!message.is_empty(), |card| {
+                    card.child(
+                        div()
+                            .text_size(px(theme::font_meta()))
+                            .text_color(theme::text_dim())
+                            .child(message.to_string()),
+                    )
+                })
+                .when(!resources.is_empty(), |card| {
+                    card.child(
+                        div()
+                            .text_size(px(theme::font_meta()))
+                            .text_color(theme::text_faint())
+                            .child(resources),
+                    )
+                })
+                .child(buttons)
+                .into_any_element(),
+        )
     }
 
     /// The toast stack, bottom-right: severity glyph + full text + a close

@@ -102,6 +102,16 @@ fn wand_noun(kind: WandKind) -> &'static str {
     }
 }
 
+/// One permission a Station-started wand run is blocked on. The request is the
+/// door's `harness-event` frame verbatim; the card reads its `data`.
+#[derive(Clone, Debug)]
+pub struct WandApproval {
+    pub wand_id: String,
+    pub harness: String,
+    pub session: String,
+    pub request: serde_json::Value,
+}
+
 pub struct Store {
     pub net: async_channel::Sender<NetCommand>,
     settings: Arc<SettingsService>,
@@ -304,6 +314,8 @@ pub struct Store {
 
     // ---- wand (warp-agent) state ----
     pub wand_busy: Option<WandKind>,
+    /// The permission a live wand run is blocked on; the AI card renders it.
+    pub wand_approval: Option<WandApproval>,
     /// The live run's id, for the progress chip's Cancel.
     pub wand_id: Option<String>,
     /// The live run commits its draft when it lands (Generate & Commit).
@@ -591,6 +603,7 @@ impl Store {
             closed_requested: std::collections::HashSet::new(),
             closed_failed: std::collections::HashSet::new(),
             wand_busy: None,
+            wand_approval: None,
             wand_id: None,
             wand_auto_commit: false,
             wand_commits: std::collections::HashMap::new(),
@@ -1808,6 +1821,25 @@ impl Store {
                 }
                 cx.notify();
             }
+            UiEvent::WandApproval {
+                wand_id,
+                harness,
+                session,
+                request,
+            } => {
+                self.wand_approval = Some(WandApproval {
+                    wand_id,
+                    harness,
+                    session,
+                    request,
+                });
+                cx.notify();
+            }
+            UiEvent::WandReplyFailed { error } => {
+                self.wand_approval = None;
+                self.notify_error(format!("Could not answer the run: {error}"));
+                cx.notify();
+            }
             UiEvent::ModelsLoaded {
                 harness,
                 catalog,
@@ -2374,6 +2406,32 @@ impl Store {
     /// offline; never launches warp-agent). The settings model picker asks
     /// for the harness it is showing; `refresh` asks the door to re-read the
     /// backend instead of answering from its in-memory list.
+    /// Answers the permission a live run is blocked on through a fresh door
+    /// connection; the run's own connection is busy waiting for its answer.
+    pub fn respond_wand_approval(&mut self, decision: &str, cx: &mut Context<Self>) {
+        let Some(card) = self.wand_approval.take() else {
+            return;
+        };
+        let request = card
+            .request
+            .pointer("/data/id")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let _ = self.net.send_blocking(NetCommand::ReplyWandPermission {
+            harness: card.harness,
+            session: card.session,
+            request,
+            decision: decision.to_string(),
+        });
+        cx.notify();
+    }
+
+    pub fn dismiss_wand_approval(&mut self, cx: &mut Context<Self>) {
+        self.wand_approval = None;
+        cx.notify();
+    }
+
     /// Loads the registry's enabled harnesses and their availability through
     /// the door; the settings AI card explains a disabled/unavailable pick.
     pub fn load_harnesses(&mut self, cx: &mut Context<Self>) {

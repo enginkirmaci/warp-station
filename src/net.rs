@@ -6,12 +6,14 @@
 //! applies to the live list when it lands.
 
 use async_channel::{Receiver, Sender};
+use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use warp_station_core::git::merge::MergeSide;
 use warp_station_core::repo_store::{self, StatusProbe};
 use warp_station_core::scan;
 use warp_station_core::settings::ReposSettings;
 use warp_station_core::warp::ModelChoice;
+use warpui_kit_platform::door;
 
 /// The mutations the Merge page asks the net thread for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -288,6 +290,14 @@ pub enum NetCommand {
     },
     /// The registry's enabled harnesses with availability and capabilities.
     LoadHarnesses,
+    /// Answers a permission a wand run raised; a fresh door connection is
+    /// used because the run's own connection is busy waiting for its answer.
+    ReplyWandPermission {
+        harness: String,
+        session: String,
+        request: String,
+        decision: String,
+    },
     /// The yesterday-summary wand: day activity across every repo → prompt →
     /// one run in warp-agent's General workspace → the summary file path.
     WandSummary {
@@ -787,6 +797,16 @@ pub enum UiEvent {
     },
     HarnessesLoaded {
         harnesses: Vec<warp_station_core::warp::DoorHarness>,
+    },
+    /// A run waits on this permission/form; the AI card renders it.
+    WandApproval {
+        wand_id: String,
+        harness: String,
+        session: String,
+        request: Value,
+    },
+    WandReplyFailed {
+        error: String,
     },
     /// The summary wand finished (Ok = the written file path).
     SummaryDone {
@@ -1815,9 +1835,11 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                         Ok(mut client) => {
                             let logs = evt_tx.clone();
                             let log_id = id.clone();
+                            let approvals = evt_tx.clone();
+                            let approval_id = id.clone();
                             let (_kill_tx, kill_rx) = async_channel::unbounded::<()>();
                             client
-                                .run_prompt(
+                                .run_prompt_with_harness_events(
                                     warp_station_core::warp::GENERAL,
                                     &prompt,
                                     &choice,
@@ -1827,6 +1849,27 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                                             wand_id: log_id.clone(),
                                             line,
                                         });
+                                    },
+                                    move |event: Value| {
+                                        let kind =
+                                            event.get("type").and_then(Value::as_str).unwrap_or("");
+                                        if kind == "permission-asked" || kind == "question-asked" {
+                                            let _ =
+                                                approvals.send_blocking(UiEvent::WandApproval {
+                                                    wand_id: approval_id.clone(),
+                                                    harness: event
+                                                        .get("harness")
+                                                        .and_then(Value::as_str)
+                                                        .unwrap_or("")
+                                                        .to_string(),
+                                                    session: event
+                                                        .get("session")
+                                                        .and_then(Value::as_str)
+                                                        .unwrap_or("")
+                                                        .to_string(),
+                                                    request: event,
+                                                });
+                                        }
                                     },
                                     kill_rx,
                                 )
@@ -1852,6 +1895,39 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                         wand_id: id,
                         result: outcome,
                     });
+                });
+            }
+            NetCommand::ReplyWandPermission {
+                harness,
+                session,
+                request,
+                decision,
+            } => {
+                let evt_tx = evt_tx.clone();
+                tokio::spawn(async move {
+                    let result = match warp_station_core::warp::Client::connect().await {
+                        Ok(mut client) => client
+                            .request(
+                                door::cmd::HARNESS,
+                                json!({
+                                    "method": "reply_permission",
+                                    "params": {
+                                        "harness": harness,
+                                        "session": session,
+                                        "request": request,
+                                        "decision": decision,
+                                    }
+                                }),
+                            )
+                            .await
+                            .map(|_| ()),
+                        Err(err) => Err(err),
+                    };
+                    if let Err(err) = result {
+                        let _ = evt_tx.send_blocking(UiEvent::WandReplyFailed {
+                            error: err.to_string(),
+                        });
+                    }
                 });
             }
             NetCommand::LoadHarnesses => {
@@ -2000,8 +2076,10 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                         Ok(mut client) => {
                             let logs = evt_tx.clone();
                             let log_id = id.clone();
+                            let approvals = evt_tx.clone();
+                            let approval_id = id.clone();
                             client
-                                .run_prompt(
+                                .run_prompt_with_harness_events(
                                     warp_station_core::warp::GENERAL,
                                     &prompt,
                                     &choice,
@@ -2011,6 +2089,27 @@ async fn net_main(cmd_rx: Receiver<NetCommand>, evt_tx: Sender<UiEvent>) {
                                             wand_id: log_id.clone(),
                                             line,
                                         });
+                                    },
+                                    move |event: Value| {
+                                        let kind =
+                                            event.get("type").and_then(Value::as_str).unwrap_or("");
+                                        if kind == "permission-asked" || kind == "question-asked" {
+                                            let _ =
+                                                approvals.send_blocking(UiEvent::WandApproval {
+                                                    wand_id: approval_id.clone(),
+                                                    harness: event
+                                                        .get("harness")
+                                                        .and_then(Value::as_str)
+                                                        .unwrap_or("")
+                                                        .to_string(),
+                                                    session: event
+                                                        .get("session")
+                                                        .and_then(Value::as_str)
+                                                        .unwrap_or("")
+                                                        .to_string(),
+                                                    request: event,
+                                                });
+                                        }
                                     },
                                     kill_rx,
                                 )
