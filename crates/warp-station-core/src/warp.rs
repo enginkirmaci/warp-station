@@ -227,6 +227,12 @@ impl Client {
     /// door starts that harness when it has no catalog yet, so this can take
     /// as long as a server boot.
     pub async fn models(&mut self, harness: &str, refresh: bool) -> Result<ModelCatalog> {
+        let version = self.protocol_version().await?;
+        if version < 3 {
+            return Err(anyhow!(
+                "warp-agent door protocol {version} is too old; update warp-agent to use the harness namespace"
+            ));
+        }
         let answer = self
             .request(cmd::MODELS, json!({"harness": harness, "refresh": refresh}))
             .await?;
