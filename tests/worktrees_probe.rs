@@ -461,6 +461,78 @@ fn refresh_asks_for_worktrees_with_another_tab_showing(cx: &mut gpui::TestAppCon
     );
 }
 
+/// A failed listing stays on screen while its retry is in flight: the ask
+/// leaves the old error alone, and only the settled answer replaces it.
+#[gpui_kit::gpui::test]
+fn a_retry_keeps_the_old_error_until_the_new_answer(cx: &mut gpui::TestAppContext) {
+    scratch_home();
+    cx.update(gpui_kit::init);
+    let (net_tx, net_rx) = async_channel::unbounded();
+    let store = cx.new(|cx| {
+        let mut store = Store::new(cx, net_tx);
+        store.group_by_root = false;
+        store.replace_repos(vec![entry("repo", "/probe/repo")]);
+        store.select_repo("/probe/repo", cx);
+        store
+    });
+
+    store.update(cx, |store, cx| {
+        store.on_net_event(
+            UiEvent::WorktreesLoaded {
+                folder: "/probe/repo".into(),
+                result: Err("git worktree list failed".into()),
+            },
+            cx,
+        );
+    });
+    let load = store
+        .read_with(cx, |store, _| store.worktree_load("/probe/repo").cloned())
+        .expect("the selection created a load");
+    assert_eq!(
+        load.error.as_deref(),
+        Some("git worktree list failed"),
+        "the failed answer is recorded"
+    );
+
+    while net_rx.try_recv().is_ok() {}
+    store.update(cx, |store, cx| store.load_worktrees(cx));
+    let retried = store
+        .read_with(cx, |store, _| store.worktree_load("/probe/repo").cloned())
+        .expect("the retry reuses the load");
+    assert!(retried.loading, "the retry marks the listing loading");
+    assert_eq!(
+        retried.error.as_deref(),
+        Some("git worktree list failed"),
+        "the retry keeps the old error until the new answer arrives"
+    );
+    let mut asked = false;
+    while let Ok(command) = net_rx.try_recv() {
+        asked |= matches!(
+            command,
+            NetCommand::Worktrees { folder } if folder == Path::new("/probe/repo")
+        );
+    }
+    assert!(asked, "the retry asks the net thread again");
+
+    store.update(cx, |store, cx| {
+        store.on_net_event(
+            UiEvent::WorktreesLoaded {
+                folder: "/probe/repo".into(),
+                result: Ok(Vec::new()),
+            },
+            cx,
+        );
+    });
+    let settled = store
+        .read_with(cx, |store, _| store.worktree_load("/probe/repo").cloned())
+        .expect("the folder still has a load");
+    assert!(!settled.loading, "the settled answer ends the ask");
+    assert!(
+        settled.error.is_none(),
+        "the settled answer replaces the old error"
+    );
+}
+
 fn remove(
     cmd_tx: &async_channel::Sender<NetCommand>,
     evt_rx: &async_channel::Receiver<UiEvent>,
