@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use warp_station::net::{NetCommand, UiEvent, spawn_net_thread};
-use warp_station::store::Store;
+use warp_station::store::{Store, WorkspaceTab};
 use warp_station_core::repo_store::RepoEntry;
 use warpui_kit_platform::door;
 
@@ -275,7 +275,8 @@ fn the_chat_button_sends_new_chat_for_the_worktree() {
     );
 }
 
-/// The tab itself: the strip carries it, and its page draws the row.
+/// The tab itself: a settled two-row listing gives the strip the tab, and its
+/// page draws the rows.
 #[gpui_kit::gpui::test]
 fn the_worktrees_tab_draws_its_rows(cx: &mut gpui::TestAppContext) {
     scratch_home();
@@ -293,13 +294,22 @@ fn the_worktrees_tab_draws_its_rows(cx: &mut gpui::TestAppContext) {
         store.on_net_event(
             UiEvent::WorktreesLoaded {
                 folder: "/probe/repo".into(),
-                result: Ok(vec![warp_station_core::model::WorktreeRow {
-                    path: "/probe/repo/.worktrees/agent-one".into(),
-                    branch: "agent/one".into(),
-                    dirty: 2,
-                    ahead: 1,
-                    behind: 0,
-                }]),
+                result: Ok(vec![
+                    warp_station_core::model::WorktreeRow {
+                        path: "/probe/repo/.worktrees/agent-one".into(),
+                        branch: "agent/one".into(),
+                        dirty: 2,
+                        ahead: 1,
+                        behind: 0,
+                    },
+                    warp_station_core::model::WorktreeRow {
+                        path: "/probe/repo/.worktrees/agent-two".into(),
+                        branch: "agent/two".into(),
+                        dirty: 0,
+                        ahead: 0,
+                        behind: 2,
+                    },
+                ]),
             },
             cx,
         );
@@ -324,6 +334,227 @@ fn the_worktrees_tab_draws_its_rows(cx: &mut gpui::TestAppContext) {
     assert!(
         row.origin.y >= page.origin.y,
         "the row sits inside the page: page {page:?}, row {row:?}"
+    );
+}
+
+/// An empty settled listing leaves the tab out of the strip: Overview is the
+/// page, and the Worktrees page is not drawn at all.
+#[gpui_kit::gpui::test]
+fn an_empty_worktree_listing_hides_the_tab(cx: &mut gpui::TestAppContext) {
+    scratch_home();
+    cx.update(gpui_kit::init);
+    let (net_tx, _net_rx) = async_channel::unbounded();
+    let store = cx.new(|cx| {
+        let mut store = Store::new(cx, net_tx);
+        store.group_by_root = false;
+        store.replace_repos(vec![entry("repo", "/probe/repo")]);
+        store.select_repo("/probe/repo", cx);
+        // the listing answers with nothing before any tab is opened
+        store.on_net_event(
+            UiEvent::WorktreesLoaded {
+                folder: "/probe/repo".into(),
+                result: Ok(Vec::new()),
+            },
+            cx,
+        );
+        store
+    });
+
+    let (_window, cx) = cx.add_window_view(|window, cx| {
+        warp_station::ui::window::MainWindow::new(store.clone(), window, cx)
+    });
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+
+    store.read_with(cx, |store, _| {
+        assert!(
+            !store.detail_tabs().contains(&WorkspaceTab::Worktrees),
+            "an empty listing earns no Worktrees tab"
+        );
+        assert_eq!(
+            store.active_detail_tab(),
+            WorkspaceTab::Overview,
+            "the pane falls back to Overview with no Worktrees tab"
+        );
+    });
+    assert!(
+        cx.debug_bounds("detail-tab-worktrees").is_none(),
+        "the strip carries no Worktrees tab"
+    );
+    assert!(
+        cx.debug_bounds("detail-tab-overview-panel").is_some(),
+        "Overview is the page the strip selects"
+    );
+    assert!(
+        cx.debug_bounds("worktrees-page").is_none(),
+        "the empty worktrees page is not drawn"
+    );
+}
+
+/// A reload does not pull the tab from under the cursor: `loading` is not part
+/// of the strip's predicate, so a drawn tab stays until the next answer
+/// settles.
+#[gpui_kit::gpui::test]
+fn a_reload_keeps_a_drawn_worktrees_tab(cx: &mut gpui::TestAppContext) {
+    scratch_home();
+    cx.update(gpui_kit::init);
+    let (net_tx, _net_rx) = async_channel::unbounded();
+    let store = cx.new(|cx| {
+        let mut store = Store::new(cx, net_tx);
+        store.group_by_root = false;
+        store.replace_repos(vec![entry("repo", "/probe/repo")]);
+        store.select_repo("/probe/repo", cx);
+        store.on_net_event(
+            UiEvent::WorktreesLoaded {
+                folder: "/probe/repo".into(),
+                result: Ok(vec![warp_station_core::model::WorktreeRow {
+                    path: "/probe/repo/.worktrees/agent-one".into(),
+                    branch: "agent/one".into(),
+                    dirty: 2,
+                    ahead: 1,
+                    behind: 0,
+                }]),
+            },
+            cx,
+        );
+        store
+    });
+    // the re-read is in flight when the strip draws
+    store.update(cx, |store, cx| store.load_worktrees(cx));
+
+    let (_window, cx) = cx.add_window_view(|window, cx| {
+        warp_station::ui::window::MainWindow::new(store.clone(), window, cx)
+    });
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+
+    store.read_with(cx, |store, _| {
+        assert!(
+            store.worktrees_tab_shown(),
+            "the row already on screen keeps the tab"
+        );
+        assert!(
+            store.detail_tabs().contains(&WorkspaceTab::Worktrees),
+            "the strip still offers the tab"
+        );
+        let load = store
+            .worktree_load("/probe/repo")
+            .expect("the folder keeps its listing");
+        assert!(load.loading, "the reload is still in flight");
+    });
+    assert!(
+        cx.debug_bounds("detail-tab-worktrees").is_some(),
+        "the strip draws the tab while the reload runs"
+    );
+}
+
+/// A failed listing earns the tab so its error card is reachable; the empty
+/// answer that follows hides the tab and returns the pane to Overview.
+#[gpui_kit::gpui::test]
+fn a_listing_error_keeps_the_tab_until_an_empty_answer(cx: &mut gpui::TestAppContext) {
+    scratch_home();
+    cx.update(gpui_kit::init);
+    let (net_tx, _net_rx) = async_channel::unbounded();
+    let store = cx.new(|cx| {
+        let mut store = Store::new(cx, net_tx);
+        store.group_by_root = false;
+        store.replace_repos(vec![entry("repo", "/probe/repo")]);
+        store.select_repo("/probe/repo", cx);
+        store.open_detail_tab(WorkspaceTab::Worktrees, cx);
+        store.on_net_event(
+            UiEvent::WorktreesLoaded {
+                folder: "/probe/repo".into(),
+                result: Err("git worktree list failed".into()),
+            },
+            cx,
+        );
+        store
+    });
+
+    let (_window, cx) = cx.add_window_view(|window, cx| {
+        warp_station::ui::window::MainWindow::new(store.clone(), window, cx)
+    });
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+
+    assert!(
+        cx.debug_bounds("detail-tab-worktrees").is_some(),
+        "a failed listing keeps the tab"
+    );
+    assert!(
+        cx.debug_bounds("worktrees-error").is_some(),
+        "the error card is the page the tab draws"
+    );
+
+    store.update(cx, |store, cx| {
+        store.on_net_event(
+            UiEvent::WorktreesLoaded {
+                folder: "/probe/repo".into(),
+                result: Ok(Vec::new()),
+            },
+            cx,
+        );
+    });
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+
+    assert!(
+        cx.debug_bounds("detail-tab-worktrees").is_none(),
+        "the empty answer hides the tab"
+    );
+    assert!(
+        cx.debug_bounds("detail-tab-overview-panel").is_some(),
+        "the pane returns to Overview"
+    );
+}
+
+/// Restoring a Worktrees resting tab with nothing to list shows Overview, not
+/// the empty page: the request stays, but the strip has no tab to select.
+#[gpui_kit::gpui::test]
+fn a_restored_worktrees_tab_draws_overview(cx: &mut gpui::TestAppContext) {
+    scratch_home();
+    cx.update(gpui_kit::init);
+    let (net_tx, _net_rx) = async_channel::unbounded();
+    let store = cx.new(|cx| {
+        let mut store = Store::new(cx, net_tx);
+        store.group_by_root = false;
+        store.replace_repos(vec![entry("repo", "/probe/repo")]);
+        store.select_repo("/probe/repo", cx);
+        store.on_net_event(
+            UiEvent::WorktreesLoaded {
+                folder: "/probe/repo".into(),
+                result: Ok(Vec::new()),
+            },
+            cx,
+        );
+        store.open_detail_tab(WorkspaceTab::Worktrees, cx);
+        store
+    });
+
+    let (_window, cx) = cx.add_window_view(|window, cx| {
+        warp_station::ui::window::MainWindow::new(store.clone(), window, cx)
+    });
+    cx.run_until_parked();
+    cx.update(|window, cx| drop(window.draw(cx)));
+
+    store.read_with(cx, |store, _| {
+        assert_eq!(
+            store.active_detail_tab(),
+            WorkspaceTab::Overview,
+            "a hidden Worktrees tab falls back to Overview"
+        );
+    });
+    assert!(
+        cx.debug_bounds("detail-tab-overview-panel").is_some(),
+        "Overview draws"
+    );
+    assert!(
+        cx.debug_bounds("worktrees-page").is_none(),
+        "the page does not draw behind a tab the strip does not carry"
+    );
+    assert!(
+        cx.debug_bounds("detail-tab-worktrees").is_none(),
+        "the strip still carries no Worktrees tab"
     );
 }
 

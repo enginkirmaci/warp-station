@@ -6078,11 +6078,25 @@ impl Store {
         cx.notify();
     }
 
+    /// Whether the strip carries the Worktrees tab. It has nothing to draw
+    /// until the selected repository has a linked checkout, so only a settled
+    /// listing with a row — or a failed one, whose card the page owns — earns
+    /// the tab. A reload is not part of the question: hiding the tab while a
+    /// new answer is in flight would pull it from under the cursor.
+    pub fn worktrees_tab_shown(&self) -> bool {
+        let Some(folder) = self.selected_repo.as_deref() else {
+            return false;
+        };
+        self.worktree_load(folder)
+            .is_some_and(|load| !load.rows.is_empty() || load.error.is_some())
+    }
+
     /// The detail tabs these settings allow. Pull requests and Issues list both
     /// platforms' rows, so either integration keeps them: a repository on
-    /// Azure alone still gets the tab its open pull requests land in. Pipelines
-    /// stays for every repository — one with no runs gets the tab and its
-    /// empty state.
+    /// Azure alone still gets the tab its open pull requests land in. Worktrees
+    /// has nothing to draw until a linked checkout exists, so it waits for the
+    /// settled listing; Pipelines stays for every repository — one with no
+    /// runs gets the tab and its empty state.
     pub fn detail_tabs(&self) -> Vec<WorkspaceTab> {
         let settings = self.settings();
         let platforms = settings.repos.enable_github || settings.repos.enable_azure_devops;
@@ -6090,10 +6104,10 @@ impl Store {
             .into_iter()
             .filter(|tab| match tab {
                 WorkspaceTab::PullRequests | WorkspaceTab::Issues => platforms,
+                WorkspaceTab::Worktrees => self.worktrees_tab_shown(),
                 WorkspaceTab::Overview
                 | WorkspaceTab::Changes
                 | WorkspaceTab::History
-                | WorkspaceTab::Worktrees
                 | WorkspaceTab::Pipelines => true,
             })
             .collect()
@@ -7816,6 +7830,103 @@ mod tests {
         assert!(tabs.contains(&WorkspaceTab::Pipelines));
         assert!(!tabs.contains(&WorkspaceTab::PullRequests));
         assert!(!tabs.contains(&WorkspaceTab::Issues));
+
+        let _ = std::fs::remove_file(&scratch);
+    }
+
+    /// Worktrees follows the selected repository's settled listing: no
+    /// selection or no answer hides it, an empty settled answer keeps it
+    /// hidden, and a row or an error brings it back. A reload — `loading` with
+    /// rows on screen — leaves the tab where it is.
+    #[test]
+    fn worktrees_tab_follows_the_settled_listing() {
+        let (tx, _rx) = async_channel::unbounded();
+        let scratch = std::env::temp_dir().join(format!(
+            "warp-station-worktrees-tab-{}.json",
+            std::process::id()
+        ));
+        std::fs::write(&scratch, "{}").expect("scratch settings");
+        let mut store = Store::with_settings(tx, Arc::new(SettingsService::at(scratch.clone())));
+        store.update_settings(|settings| {
+            settings.repos.enable_github = false;
+            settings.repos.enable_azure_devops = false;
+        });
+
+        assert!(
+            !store.worktrees_tab_shown(),
+            "no selected repository has no listing"
+        );
+        assert_eq!(
+            store.detail_tabs(),
+            vec![
+                WorkspaceTab::Overview,
+                WorkspaceTab::Changes,
+                WorkspaceTab::History,
+                WorkspaceTab::Pipelines,
+            ],
+            "the other tabs stay with both platforms off"
+        );
+
+        store.selected_repo = Some("/probe/repo".into());
+        assert!(
+            !store.worktrees_tab_shown(),
+            "a selection with no answer yet has nothing to list"
+        );
+
+        store.worktrees.insert(
+            "/probe/repo".into(),
+            WorktreeLoad {
+                loading: true,
+                ..WorktreeLoad::default()
+            },
+        );
+        assert!(
+            !store.worktrees_tab_shown(),
+            "an empty listing still in flight is not a settled answer"
+        );
+
+        store.worktrees.insert(
+            "/probe/repo".into(),
+            WorktreeLoad {
+                rows: vec![warp_station_core::model::WorktreeRow {
+                    path: "/probe/repo/.worktrees/agent-one".into(),
+                    branch: "agent/one".into(),
+                    dirty: 0,
+                    ahead: 0,
+                    behind: 0,
+                }],
+                loading: true,
+                ..WorktreeLoad::default()
+            },
+        );
+        assert!(
+            store.worktrees_tab_shown(),
+            "a reload keeps the tab of a listing that already has a row"
+        );
+        assert!(
+            store.detail_tabs().contains(&WorkspaceTab::Worktrees),
+            "the strip carries the tab the listing earns"
+        );
+
+        store.worktrees.insert(
+            "/probe/repo".into(),
+            WorktreeLoad {
+                error: Some("git worktree list failed".into()),
+                ..WorktreeLoad::default()
+            },
+        );
+        assert!(
+            store.worktrees_tab_shown(),
+            "a failed listing keeps the tab: its error card is the page"
+        );
+
+        store
+            .worktrees
+            .insert("/probe/repo".into(), WorktreeLoad::default());
+        assert!(
+            !store.worktrees_tab_shown(),
+            "a settled empty answer hides the tab again"
+        );
 
         let _ = std::fs::remove_file(&scratch);
     }
