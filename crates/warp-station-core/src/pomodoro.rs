@@ -4,10 +4,10 @@
 //! Warp Station owns none of the timer's state. The app at
 //! `~/.warp/pomodoro` publishes `state.json` and, while it runs, the family's
 //! door (`ipc.port` + `ipc.token`) with the commands `status`, `start`,
-//! `pause`, `reset`, `skip` and `focus`; the contract is
-//! `plans/warp-pomodoro.md` §1. A refused or absent endpoint means the app is
-//! not running, not that anything failed: callers fall back to the state file
-//! and never raise a toast over a closed app.
+//! `pause`, `reset`, `skip` and `focus`; the contract is warp-pomodoro's own
+//! `README.md` (its "Launch contract" and door sections). A refused or absent
+//! endpoint means the app is not running, not that anything failed: callers
+//! fall back to the state file and never raise a toast over a closed app.
 
 use crate::exe;
 use crate::process::DetachedSpawn;

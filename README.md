@@ -1,110 +1,98 @@
 # Warp Station
 
-Compact developer utilities collection — Rust/GPUI app.
+A repository workbench for Linux and Windows: every repository you work on in
+one window — its changes, history, pull requests, pipelines and worktrees —
+with the AI surface (commit messages, README drafts, a daily summary) running
+in [Warp Agent](https://github.com/enginkirmaci/warp-agent) over its loopback
+door.
 
-## Quick start
+Part of the [warp suite](https://github.com/enginkirmaci/warp-suite). Rust and
+GPUI.
+
+## Install
+
+The normal way is the suite bundle, which installs every warp app at once:
+
+- **Linux** — download `warp-suite-<version>-linux.tar.gz` from the
+  [suite release](https://github.com/enginkirmaci/warp-suite/releases), extract
+  it, and run `./install.sh`. Binaries go to `~/.local/bin`, desktop entries
+  and icons to `~/.local/share`; everything is per-user, no root needed.
+- **Windows** — download `warp-suite-<version>-windows-x64.zip`, extract it,
+  and run `install.cmd`. It installs under
+  `%LOCALAPPDATA%\Programs\warp-suite` with a Start Menu folder. The same ZIP
+  is portable: run the executables under `apps\` without installing.
+
+Warp Station also ships on its own: the Linux tarball and the Windows portable
+zip and installer are on
+[this repository's releases](https://github.com/enginkirmaci/warp-station/releases).
+
+## Run
 
 ```sh
-cargo run            # debug run
-cargo test           # unit + live git parity + headless UI probes
+cargo run            # debug build
+cargo test           # unit tests, live git parity checks and headless UI probes
 ```
 
-User data lives under `~/.warp`: this app's own folder `~/.warp/station`
-(versioned `settings.json`, `cache/repos.json`, `cache/models.json` and
-`assistant/` with the prompt templates), the suite's shared `logs/`, the kit's
-`ui.json` and the SnapIt settings. Repo tags live in `settings.json`, so the
-cache is disposable. The notes store is user content in `~/notes`. An old
-`opencode/` folder — or a stray `ai/` from a development build — is split on
-startup, a legacy `~/.devtools` root is absorbed into `~/.warp` on first
-launch, and the root files move into `~/.warp/station` once.
+The first build fetches GPUI from the zed git repository and takes a while. It
+needs the usual Wayland/Vulkan development packages.
 
-The rail's **Pomodoro** page is the live view of the sibling
-[warp-pomodoro](../warp-pomodoro) timer: the countdown, phase, cycle dots and
-the day's focus counts, with Start/Pause and Reset driving the app over its
-loopback door and "Open Pomodoro" for everything else. Its durations,
-long-break cycle, history and notifications live in that app; Station only
-names the executable and can hide the section in Settings › Suite apps.
+## What it does
 
-## Keyboard
+- **Repositories** in a rail, each opening as a tab: Changes, History,
+  Worktrees, pull requests, issues and pipelines, with a diff pane and a merge
+  editor for a stopped merge, rebase, cherry-pick or revert.
+- **The AI surface** — the commit-message and README wands, the daily summary,
+  the harness/model/variant catalog — runs in Warp Agent. A missing Warp Agent
+  binary turns those features off; a merely closed one is launched on demand.
+  Wand runs appear as real Warp Agent chats in the repository's workspace.
+- **The Pomodoro page** is a live view of the sibling
+  [warp-pomodoro](https://github.com/enginkirmaci/warp-pomodoro) timer: the
+  countdown, phase, cycle dots and the day's focus counts, with Start/Pause and
+  Reset driving that app over its door. Its durations, history and
+  notifications live there, never here.
+- **Worktrees** for a repository are listed with their branch, path,
+  uncommitted count and distance from upstream; a chat can be started inside
+  one with a single door call.
+- **Keyboard-first**: `?` opens the shortcut sheet, `Shift`+letter launches an
+  app, and every list's right edge drags.
 
-`?` (or `Ctrl+/`, or the keyboard icon in the title bar) opens the shortcut
-sheet: every key the window answers to, grouped by the surface that owns it.
-`Esc` closes it.
+## Where it keeps its files
 
-`Ctrl+Shift+V` copies the stored Clipboard Password. The page that stores it
-lives under Tools once **Settings › External tools › Enable Clipboard
-Password** is on; with that switch on, the app binds the same shortcut
-system-wide at the next launch.
+Everything lives under `~/.warp`:
 
-On a focused repository row: `↑`/`↓` move, `Enter` opens the repository as a
-tab, `Alt+F` favorites, `Alt+A` archives or restores, and `Alt+C` opens
-Changes. `Shift`+letter opens an app (`Shift+C` is VS Code; the launch menu
-shows the rest). `←`/`→` and `Tab`/`Shift+Tab` move the keyboard between the
-lists on screen — the repository list, Changes files and Merge Changes,
-History commits, the PR/Issues list, Pipelines runs, the pull request's Files
-and Commits rails and the selected commit's own file rail — and stop at the
-end instead of wrapping.
+| Path | What |
+| --- | --- |
+| `~/.warp/station/settings.json` | this app's versioned settings |
+| `~/.warp/station/cache/` | the repository and model caches (disposable) |
+| `~/.warp/station/assistant/` | the prompt templates |
+| `~/.warp/logs/` | the suite's shared rolling logs |
+| `~/.warp/snapit/` | the SnapIt settings and layouts, shared with warp-snapit |
+| `~/notes` | the notes store, shared with warp-notes |
 
-Every list's right edge drags: the repository list, the page lists (Summary,
-Settings, Tools, About and the merge editor), the PR/Issues and Pipelines
-work lists, the Changes file and History commit columns, and the pull
-request's Files, Commits and commit-files rails. The width stays inside the
-column's bounds, and the last one is remembered.
+Repo tags live in `settings.json`, so the cache is disposable. A legacy
+`~/.devtools` root is absorbed into `~/.warp` on first launch.
 
-A repository with a stopped merge, rebase, cherry-pick or revert puts a
-**Merge Changes** list above the Changes tab's Files list: every unmerged path
-with what is left in it (an unresolved-block count, or the whole-file reason
-for a binary or oversized conflict). A press, or the arrow keys on the focused
-rail, picks one and the diff pane offers the merge editor that resolves it.
+## Siblings
 
-## warp-agent integration
+| App | What it adds |
+| --- | --- |
+| [warp-agent](https://github.com/enginkirmaci/warp-agent) | the chat client the AI surface drives |
+| [warp-notes](https://github.com/enginkirmaci/warp-notes) | per-repo markdown notes |
+| [warp-pomodoro](https://github.com/enginkirmaci/warp-pomodoro) | the focus timer behind the Pomodoro page |
+| [warp-flow](https://github.com/enginkirmaci/warp-flow) | the workflow engine |
+| [warp-snapit](https://github.com/enginkirmaci/warp-snapit) | the Windows zone snapper |
 
-The AI surface (commit-message / README wands, the daily summary, the
-harness/model/variant catalog) runs in [warp-agent](../warp-agent) over its
-loopback door (`~/.warp/agent/ipc.port` + `ipc.token`) — Warp Station no longer
-spawns `opencode serve` itself. Rules: a missing warp-agent binary turns the
-AI features off; a merely closed one is launched on demand. Wand runs happen
-as visible warp-agent chats in the repo's workspace (added when missing), the
-daily summary runs in warp-agent's General workspace, and tool-permission
-asks are answered in warp-agent's own UI. Settings picks the harness (the
-door reports the options), one model and that model's variant; commit-message
-generation uses the same selection as every other wand.
+## Build and package
 
-A repository's `Worktrees` tab lists the linked checkouts of that repository —
-their branch, path, uncommitted count and distance from upstream — and starts a
-chat inside one with a single door call, opens its folder, or removes it (a
-dirty checkout asks first). Worktrees belong to their repository, so Station
-never lists one as a repository of its own.
-The tab appears only when the listing settles with at least one linked
-checkout — or when the read failed — so a repository with no linked checkout
-shows no empty Worktrees page; selecting the repository, Refresh and the
-auto-refresh pass check again.
+```sh
+cargo build --release
+```
 
-The switches are independent: **Enable warp-agent** arms the whole AI
-surface (wands, summary, the catalog), while **Enable OpenCode** and
-**Enable DeepSeek** only show the repo rows' CLI buttons, which launch the
-`opencode` / `dsh` CLIs themselves in a terminal (`opencode` with
-`--model <model>` when the opencode harness is selected; `dsh` boots its own
-profile and takes no model) — that launch never goes through warp-agent, and
-the AI features never need the CLI binaries.
+The `release` workflow packages this repository alone: on Linux it stages the
+binary, the desktop entry and the hicolor icons into a tarball; on Windows it
+writes the portable zip and the Inno Setup installer. The assets stay here
+under `packaging/linux/` and `packaging/windows/`.
 
-## Package
+## License
 
-The `release` workflow packages this repository alone:
-
-- Linux: the tag job stages the binary, the desktop entry and hicolor icons
-  into a tarball.
-- Windows: the tag job writes the portable zip and the Inno Setup installer.
-  The app icon is embedded into the exe by `build.rs` from
-  `packaging/windows/warp-station.ico`.
-
-A local build is `cargo build --release`. The assets stay here:
-`packaging/linux/{*.desktop,icons}`, `packaging/windows/{*.ico,*.iss}`.
-
-## SnapIt
-
-The Windows zone snapper lives in its own repo,
-[enginkirmaci/warp-snapit](https://github.com/enginkirmaci/warp-snapit), and
-reads the same `~/.warp/snapit` settings/layouts. `warp-snapit.exe` is
-distributed through [warp-suite](https://github.com/enginkirmaci/warp-suite)
-releases (`snapit.executable` in the settings points Warp Station at the exe).
+GPL-3.0. See [LICENSE](LICENSE).
