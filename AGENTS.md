@@ -74,7 +74,10 @@ Keep this order; several steps depend on the previous one:
   through `warpui-kit-worktree` on the net thread; "Chat here" sends the door's
   `new-chat` with the checkout's folder, and removal/prune run the kit's git
   calls. A worktree is never a repo of its own: no row, tab or flow key, and
-  Station's own Changes/History stay on the parent checkout.
+  Station's own Changes/History stay on the parent checkout. The tab is
+  hidden until a listing settles with at least one linked checkout (or a
+  failed read); selecting a repository, Refresh and the auto-refresh pass
+  check again.
 - **Notes.** The notes surfaces launch warp-notes with `--store` (the resolved
   `notes_store_path`) and an explicit scope: the titlebar, the summary and the
   global-search note hits ask for `--root` (the whole store, never the

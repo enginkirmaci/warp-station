@@ -75,6 +75,10 @@ their branch, path, uncommitted count and distance from upstream — and starts 
 chat inside one with a single door call, opens its folder, or removes it (a
 dirty checkout asks first). Worktrees belong to their repository, so Station
 never lists one as a repository of its own.
+The tab appears only when the listing settles with at least one linked
+checkout — or when the read failed — so a repository with no linked checkout
+shows no empty Worktrees page; selecting the repository, Refresh and the
+auto-refresh pass check again.
 
 The switches are independent: **Enable warp-agent** arms the whole AI
 surface (wands, summary, the catalog), while **Enable OpenCode** and
