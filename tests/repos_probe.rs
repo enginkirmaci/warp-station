@@ -1343,7 +1343,7 @@ fn auto_refresh_reloads_the_active_tab(cx: &mut TestAppContext) {
     use std::path::{Path, PathBuf};
     use std::time::Duration;
 
-    use warp_station::net::NetCommand;
+    use warp_station::net::{NetCommand, UiEvent};
     use warp_station::store::WorkspaceTab;
 
     cx.update(gpui_kit::init);
@@ -1403,6 +1403,24 @@ fn auto_refresh_reloads_the_active_tab(cx: &mut TestAppContext) {
         )),
         "the active Changes tab reloads"
     );
+    assert!(
+        commands.iter().any(|command| matches!(
+            command,
+            NetCommand::Worktrees { folder } if folder == Path::new("/probe/alpha")
+        )),
+        "the worktree listing reloads while Changes is on screen"
+    );
+    // the eager ask is in flight; its answer clears the gate so later passes
+    // exercise their own unconditional kick rather than the dedupe
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.on_net_event(
+            UiEvent::WorktreesLoaded {
+                folder: "/probe/alpha".into(),
+                result: Ok(Vec::new()),
+            },
+            cx,
+        );
+    });
 
     // History: its own read joins the changes
     cx.update_entity(&store, |s: &mut Store, cx| {
@@ -1445,6 +1463,17 @@ fn auto_refresh_reloads_the_active_tab(cx: &mut TestAppContext) {
         )),
         "the active platform tab asks for its repository"
     );
+    // clear the ask the History pass started, so the periodic tick's own kick
+    // is what the next drain sees
+    cx.update_entity(&store, |s: &mut Store, cx| {
+        s.on_net_event(
+            UiEvent::WorktreesLoaded {
+                folder: "/probe/alpha".into(),
+                result: Ok(Vec::new()),
+            },
+            cx,
+        );
+    });
 
     // The periodic clock takes the same path as the focus regain.
     cx.update_entity(&store, |s: &mut Store, cx| {
@@ -1463,6 +1492,13 @@ fn auto_refresh_reloads_the_active_tab(cx: &mut TestAppContext) {
             NetCommand::LoadChanges { folder } if folder == Path::new("/probe/alpha")
         )),
         "the periodic tick reloads the active tab too"
+    );
+    assert!(
+        commands.iter().any(|command| matches!(
+            command,
+            NetCommand::Worktrees { folder } if folder == Path::new("/probe/alpha")
+        )),
+        "the periodic tick reloads the worktree listing too"
     );
     let _ = std::fs::remove_file(&scratch);
 }

@@ -351,6 +351,116 @@ fn entry(name: &str, path: &str) -> RepoEntry {
     }
 }
 
+/// Selecting a repository asks for its worktrees before any tab is opened, so
+/// the tab can be drawn from a settled listing. A second ask while the first
+/// is still in flight is dropped instead of queueing git again.
+#[gpui_kit::gpui::test]
+fn selecting_a_repo_asks_for_its_worktrees(cx: &mut gpui::TestAppContext) {
+    scratch_home();
+    cx.update(gpui_kit::init);
+    let (net_tx, net_rx) = async_channel::unbounded();
+    let store = cx.new(|cx| {
+        let mut store = Store::new(cx, net_tx);
+        store.group_by_root = false;
+        store.replace_repos(vec![entry("repo", "/probe/repo")]);
+        store.select_repo("/probe/repo", cx);
+        store
+    });
+
+    let take_asks = |net_rx: &async_channel::Receiver<NetCommand>| {
+        let mut asks = Vec::new();
+        while let Ok(command) = net_rx.try_recv() {
+            if let NetCommand::Worktrees { folder } = command {
+                asks.push(folder);
+            }
+        }
+        asks
+    };
+
+    assert_eq!(
+        take_asks(&net_rx),
+        vec![PathBuf::from("/probe/repo")],
+        "the selection asks for the repository's worktrees with no tab open"
+    );
+
+    store.update(cx, |store, cx| store.load_worktrees(cx));
+    assert!(
+        take_asks(&net_rx).is_empty(),
+        "a re-read while the first ask is in flight does not queue a duplicate"
+    );
+}
+
+/// Refresh asks for the selected repository's worktrees even while another tab
+/// is showing, and the worktree read never holds the button's busy state open.
+#[gpui_kit::gpui::test]
+fn refresh_asks_for_worktrees_with_another_tab_showing(cx: &mut gpui::TestAppContext) {
+    scratch_home();
+    cx.update(gpui_kit::init);
+    let (net_tx, net_rx) = async_channel::unbounded();
+    let store = cx.new(|cx| {
+        let mut store = Store::new(cx, net_tx);
+        store.group_by_root = false;
+        // the task's "settle the changes answer" assertion is about the
+        // worktree read, so the activity passes stay out of `pending`
+        store.update_settings(|settings| {
+            settings.repos.enable_github = false;
+            settings.repos.enable_azure_devops = false;
+        });
+        store.replace_repos(vec![entry("repo", "/probe/repo")]);
+        store.select_repo("/probe/repo", cx);
+        store
+    });
+
+    // the selection's own ask answers, so the refresh below is a fresh ask;
+    // Changes is the resting tab throughout
+    store.update(cx, |store, cx| {
+        store.on_net_event(
+            UiEvent::WorktreesLoaded {
+                folder: "/probe/repo".into(),
+                result: Ok(Vec::new()),
+            },
+            cx,
+        );
+        store.open_detail_tab(warp_station::store::WorkspaceTab::Changes, cx);
+    });
+    while net_rx.try_recv().is_ok() {}
+
+    store.update(cx, |store, cx| store.refresh_panel(cx));
+    let mut commands = Vec::new();
+    while let Ok(command) = net_rx.try_recv() {
+        commands.push(command);
+    }
+    assert!(
+        commands.iter().any(|command| matches!(
+            command,
+            NetCommand::Worktrees { folder } if folder == Path::new("/probe/repo")
+        )),
+        "Refresh re-checks the worktrees while Changes is on screen"
+    );
+    assert!(
+        store.read_with(cx, |store, _| store.panel_refreshing()),
+        "the refresh starts the button's busy state"
+    );
+
+    // only the changes read settles; the worktree answer never arrives
+    store.update(cx, |store, cx| {
+        store.on_net_event(
+            UiEvent::ChangesLoaded {
+                folder: "/probe/repo".into(),
+                snapshot: None,
+                branches: Vec::new(),
+                recent: Vec::new(),
+                unpushed: None,
+            },
+            cx,
+        );
+    });
+    assert!(
+        !store.read_with(cx, |store, _| store.panel_refreshing()),
+        "the worktree read is not part of the button's pending count"
+    );
+}
+
 fn remove(
     cmd_tx: &async_channel::Sender<NetCommand>,
     evt_rx: &async_channel::Receiver<UiEvent>,

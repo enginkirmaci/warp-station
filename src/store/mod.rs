@@ -2763,16 +2763,22 @@ impl Store {
         let Some(folder) = self.selected_repo.clone() else {
             return;
         };
-        let load = self.worktrees.entry(folder.clone()).or_default();
+        self.kick_worktrees(&folder);
+        cx.notify();
+    }
+
+    /// Asks the net thread for one repository's worktrees, whatever tab is on
+    /// screen. The settle (`UiEvent::WorktreesLoaded`) owns the result, so an
+    /// older error stays until the new answer arrives.
+    fn kick_worktrees(&mut self, folder: &str) {
+        let load = self.worktrees.entry(folder.to_string()).or_default();
         if load.loading {
             return;
         }
         load.loading = true;
-        load.error = None;
         let _ = self.net.send_blocking(NetCommand::Worktrees {
-            folder: std::path::PathBuf::from(&folder),
+            folder: std::path::PathBuf::from(folder),
         });
-        cx.notify();
     }
 
     /// Starts a chat inside a worktree through warp-agent's door, which opens
@@ -3213,8 +3219,10 @@ impl Store {
         let _ = self.net.send_blocking(NetCommand::LoadChanges {
             folder: path.clone(),
         });
+        // the listing follows the repository, not the tab on screen: a
+        // hidden Worktrees tab must still be fresh when it is opened
+        self.kick_worktrees(&folder);
         match self.detail_tab {
-            WorkspaceTab::Worktrees => self.load_worktrees(cx),
             WorkspaceTab::History => {
                 if !self.history.is_empty() {
                     self.start_history_pass();
@@ -3238,7 +3246,7 @@ impl Store {
                     self.arm_run_follow();
                 }
             }
-            WorkspaceTab::Overview | WorkspaceTab::Changes => {}
+            WorkspaceTab::Overview | WorkspaceTab::Changes | WorkspaceTab::Worktrees => {}
         }
         cx.notify();
     }
@@ -3382,11 +3390,14 @@ impl Store {
 
     /// Asks the net thread for what the rail and the workspace views show for
     /// the newly selected repo: its changes, and what GitHub says about it.
-    fn load_repo_workspace(&self, folder: &str) {
+    fn load_repo_workspace(&mut self, folder: &str) {
         let path = std::path::PathBuf::from(folder);
         let _ = self.net.send_blocking(NetCommand::LoadChanges {
             folder: path.clone(),
         });
+        // the startup hook loads the workspace before the selection is set, so
+        // the folder comes in as an argument rather than from `selected_repo`
+        self.kick_worktrees(folder);
         let settings = self.settings();
         if settings.repos.enable_github
             && let Some(gh) = warp_station_core::exe::locate(&settings.repos.github_executable)
@@ -6896,6 +6907,9 @@ impl Store {
         let _ = self.net.send_blocking(NetCommand::LoadChanges {
             folder: path.clone(),
         });
+        // the listing is deliberately not in `pending`: `WorktreesLoaded` has
+        // no settle path, so the buttons must not spin until git answers it
+        self.kick_worktrees(&folder);
         self.closed_requested.retain(|(key, _, _)| key != &folder);
         self.closed_failed.retain(|(key, _, _)| key != &folder);
         self.closed.retain(|(key, _, _), _| key != &folder);
