@@ -1,9 +1,9 @@
 # warp-station — agent instructions
 
-Read [`../../AGENTS.md`](../../AGENTS.md) first. This file adds only the
-app-specific facts. The user-facing description is in
+Read [`../warp-suite/AGENTS.md`](../warp-suite/AGENTS.md) first. This file adds
+only the app-specific facts. The user-facing description is in
 [`README.md`](README.md); the deep UI guides are in
-[`../../docs/agents/`](../../docs/agents/).
+[`../warp-suite/docs/agents/`](../warp-suite/docs/agents/).
 
 ## Shape
 
@@ -237,7 +237,7 @@ unaffected; delete the file to build against the tag again.
   `WARP_STATION_IPC_DIR` redirects the single-instance endpoint for probes.
 - The env hooks (`WARP_STATION_PAGE`, `_SHEET`, `_SELECT`, `_TOOLS_OPEN`,
   `_GROUPS`, `_NOTES`, `_IPC_DIR`) are read once at window construction; see
-  [`../../docs/agents/testing-and-captures.md`](../../docs/agents/testing-and-captures.md).
+  [`../warp-suite/docs/agents/testing-and-captures.md`](../warp-suite/docs/agents/testing-and-captures.md).
 
 ## Platform notes
 
